@@ -1,0 +1,83 @@
+/* ── Viewer shell ─────────────────────────────────────────────────────────── */
+.dfa-viewer {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg-editor);
+}
+
+.dfa-viewer--empty { padding: 16px; gap: 8px; }
+
+.dfa-viewer__hint {
+  padding: 0 14px 12px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+/* ── Stats bar ────────────────────────────────────────────────────────────── */
+.dfa-viewer__stats {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  user-select: none;
+}
+.dfa-viewer__sep        { color: var(--border-strong); }
+.dfa-viewer__hint-inline { opacity: 0.45; font-size: 10.5px; }
+.dfa-viewer__legend     { display: flex; align-items: center; gap: 5px; }
+
+.dfa-legend {
+  display: inline-block;
+  width: 11px; height: 11px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.dfa-legend--start  { background: #160d2e; border: 2px solid #7b4fd8; }
+.dfa-legend--accept { background: #0c1e16; border: 2px solid #0db880; }
+
+/* ── Canvas ───────────────────────────────────────────────────────────────── */
+.dfa-viewer__canvas {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+  cursor: grab;
+  background: var(--bg-editor);
+}
+.dfa-viewer__canvas[data-dragging] { cursor: grabbing; }
+
+.dfa-inner {
+  position: absolute;
+  top: 0; left: 0;
+  transform-origin: 0 0;
+  line-height: 0;       /* remove gap under inline SVG */
+}
+
+/* Graphviz outputs an SVG with a white polygon background — remove it. */
+.dfa-inner svg > polygon:first-child { display: none; }
+
+/* Make the Graphviz SVG fill without a fixed size so it scales properly. */
+.dfa-inner svg {
+  overflow: visible;
+  display: block;
+}
+
+/* ── Overlay (loading / error) ───────────────────────────────────────────── */
+.dfa-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 13px;
+  pointer-events: none;
+}
+.dfa-overlay--error { color: #f87171; }
