@@ -11,6 +11,11 @@ from CompiscriptLexer import CompiscriptLexer
 from CompiscriptParser import CompiscriptParser
 from error_listener import CompiscriptErrorListener
 
+SUCCESS_MESSAGE = (
+    "El archivo fue analizado correctamente. "
+    "No se encontraron errores léxicos ni sintácticos."
+)
+
 
 def _tree_to_dict(node, rule_names: list[str]) -> dict:
     """Convert an ANTLR parse tree node into a plain dict tree, JSON-friendly
@@ -27,27 +32,38 @@ def _tree_to_dict(node, rule_names: list[str]) -> dict:
 
 def analyze(input_stream: InputStream) -> dict:
     """Lex + parse a Compiscript ANTLR input stream.
-
+ 
     Returns a dict with:
-      - errors: list[str]      lexical/syntax error messages
+      - errors: list[str]      lexical/syntax error messages (empty if none)
+      - status_message: str    Spanish message: success text if no errors,
+                                otherwise a summary of how many were found
       - tree_string: str       LISP-style parse tree (same as the old CLI output)
       - tree_json: dict        parse tree as a nested dict, for visualization
     """
     lexer = CompiscriptLexer(input_stream)
-
+ 
     error_listener = CompiscriptErrorListener()
     lexer.removeErrorListeners()
     lexer.addErrorListener(error_listener)
-
+ 
     tokens = CommonTokenStream(lexer)
     parser = CompiscriptParser(tokens)
     parser.removeErrorListeners()
     parser.addErrorListener(error_listener)
-
+ 
     tree = parser.program()
-
+ 
+    errors = list(error_listener.errors)
+    if errors:
+        n = len(errors)
+        noun = "error" if n == 1 else "errores"
+        status_message = f"Se encontraron {n} {noun} durante el análisis."
+    else:
+        status_message = SUCCESS_MESSAGE
+ 
     return {
-        "errors": list(error_listener.errors),
+        "errors": errors,
+        "status_message": status_message,
         "tree_string": tree.toStringTree(recog=parser),
         "tree_json": _tree_to_dict(tree, parser.ruleNames),
     }

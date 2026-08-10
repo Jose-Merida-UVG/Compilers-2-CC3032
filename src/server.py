@@ -152,11 +152,11 @@ def run_file(body: RunBody):
     p = resolve(body.inputPath)
     if not p.is_file():
         raise HTTPException(status_code=404, detail="File not found")
-
+ 
     result = analyze_file(str(p))
-
-    lines = list(result["errors"]) + [result["tree_string"]]
-
+ 
+    lines = list(result["errors"]) + [result["status_message"], result["tree_string"]]
+ 
     out_dir = WORKSPACE / "output"
     out_dir.mkdir(exist_ok=True)
     (out_dir / f"{p.name}.out").write_text("\n".join(lines), encoding="utf-8")
@@ -164,5 +164,6 @@ def run_file(body: RunBody):
     return {
         "lines": lines,
         "errors": result["errors"],
+        "statusMessage": result["status_message"],
         "tree": result["tree_json"],
     }
