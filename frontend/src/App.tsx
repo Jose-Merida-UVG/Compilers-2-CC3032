@@ -5,8 +5,8 @@ import TerminalPane from "./components/Terminal/TerminalPane";
 import StatusBar from "./components/StatusBar/StatusBar";
 import type { FileNode, EditorTab } from "./types";
 import { api } from "./api";
-import "./App.css";
-
+import "App.css";
+ 
 export default function App() {
   const [fileTree, setFileTree] = useState<FileNode[]>([]);
   const [tabs, setTabs] = useState<EditorTab[]>([]);
@@ -17,11 +17,11 @@ export default function App() {
   const resizeStartY = useRef(0);
   const resizeStartH = useRef(0);
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
+ 
   const appendTerminal = useCallback((line: string) => {
     setTerminalLines((prev) => [...prev, line]);
   }, []);
-
+ 
   const refreshTree = useCallback(async () => {
     try {
       const tree = await api.listDirectory();
@@ -30,9 +30,9 @@ export default function App() {
       appendTerminal(`Error refreshing tree: ${e.message}`);
     }
   }, [appendTerminal]);
-
+ 
   useEffect(() => { refreshTree(); }, []);
-
+ 
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
       if (!resizing.current) return;
@@ -45,7 +45,7 @@ export default function App() {
     window.addEventListener("mouseup", onUp);
     return () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
   }, []);
-
+ 
   const onResizeStart = useCallback((e: React.MouseEvent) => {
     resizing.current = true;
     resizeStartY.current = e.clientY;
@@ -53,7 +53,7 @@ export default function App() {
     document.body.style.cursor = "ns-resize";
     e.preventDefault();
   }, [terminalHeight]);
-
+ 
   // ── File ops ────────────────────────────────────────────────────────────────
   const openFile = useCallback(async (node: FileNode) => {
     if (node.isDir) return;
@@ -67,7 +67,7 @@ export default function App() {
       appendTerminal(`Error opening ${node.path}: ${e.message}`);
     }
   }, [tabs, appendTerminal]);
-
+ 
   const closeTab = useCallback((path: string) => {
     setTabs((prev) => {
       const next = prev.filter((t) => t.path !== path);
@@ -78,7 +78,7 @@ export default function App() {
       return next;
     });
   }, []);
-
+ 
   const updateTabContent = useCallback((path: string, content: string) => {
     setTabs((prev) => prev.map((t) => t.path === path ? { ...t, content, isDirty: true } : t));
     if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
@@ -89,7 +89,7 @@ export default function App() {
       } catch { /* silent — user can still Ctrl+S manually */ }
     }, 200);
   }, []);
-
+ 
   const saveTab = useCallback(async (path: string) => {
     const tab = tabs.find((t) => t.path === path);
     if (!tab || tab.treeData) return; // tree tabs are read-only
@@ -102,7 +102,7 @@ export default function App() {
       appendTerminal(`Save error: ${e.message}`);
     }
   }, [tabs, appendTerminal, refreshTree]);
-
+ 
   // ── Run (lex + parse) ─────────────────────────────────────────────────────────
   const runFile = useCallback(async (inputPath: string) => {
     const tab = tabs.find((t) => t.path === inputPath);
@@ -115,16 +115,13 @@ export default function App() {
         return;
       }
     }
-
+ 
     appendTerminal(`\n▶ Running ${inputPath}`);
     try {
       const result = await api.run(inputPath);
       result.lines.forEach((l) => appendTerminal(l));
-      const status = result.errors.length > 0
-        ? `── ${result.errors.length} error(s) — output saved to output/${inputPath.split("/").pop()}.out ──`
-        : `── no errors — output saved to output/${inputPath.split("/").pop()}.out ──`;
-      appendTerminal(status);
-
+      appendTerminal(`── salida guardada en output/${inputPath.split("/").pop()}.out ──`);
+ 
       if (result.tree) {
         const base = inputPath.split("/").pop()?.replace(/\.cps$/, "") ?? "unknown";
         const treeTabPath = `${inputPath}::tree`;
@@ -138,16 +135,16 @@ export default function App() {
         });
         setActiveTab(treeTabPath);
       }
-
+ 
       await refreshTree();
     } catch (e: any) {
       appendTerminal(`Error: ${e.message}`);
     }
   }, [tabs, appendTerminal, refreshTree]);
-
+ 
   const activeTabData = tabs.find((t) => t.path === activeTab) ?? null;
   const isCps = (activeTab?.endsWith(".cps") ?? false) && !activeTabData?.treeData;
-
+ 
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -160,7 +157,7 @@ export default function App() {
           refreshTree={refreshTree}
         />
       </aside>
-
+ 
       <div className="main-area">
         <EditorPane
           tabs={tabs}
@@ -178,7 +175,7 @@ export default function App() {
             height={terminalHeight}
           />
       </div>
-
+ 
       <StatusBar
         activeFile={activeTabData?.path ?? null}
         isDirty={activeTabData?.isDirty ?? false}

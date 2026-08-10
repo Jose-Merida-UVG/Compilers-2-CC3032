@@ -15,10 +15,12 @@ export interface ParseTreeNode {
 }
 
 export interface RunOutput {
-  /** Terminal-ready lines: errors followed by the LISP-style parse tree string. */
+  /** Terminal-ready lines: errors, status message, then the LISP-style parse tree string. */
   lines: string[];
   /** Lexical/syntax error messages only. */
   errors: string[];
+  /** Spanish summary: success text if no errors, otherwise an error count. */
+  statusMessage: string;
   /** The parse tree as a nested structure, for the ParseTreeViewer. */
   tree: ParseTreeNode | null;
 }
