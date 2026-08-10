@@ -50,11 +50,11 @@ class CompiscriptErrorListener(ErrorListener):
             f"Error sintáctico en línea {line}, columna {column}: {detail}."
         )
 
-    def _describe_found(self, offendingSymbol):
+    def _describe_found(self, recognizer, offendingSymbol):
         if offendingSymbol is None or offendingSymbol.text is None:
             return "el fin del archivo"
         text = offendingSymbol.text
-        friendly = FRIENDLY_TOKEN_NAMES.get(text)
+        friendly = self._token_type_name(recognizer, offendingSymbol.type)
         return f"'{text}'" if friendly is None else f"{friendly} ('{text}')"
  
     def _expected_names(self, recognizer):
