@@ -5,7 +5,7 @@ import TerminalPane from "./components/Terminal/TerminalPane";
 import StatusBar from "./components/StatusBar/StatusBar";
 import type { FileNode, EditorTab } from "./types";
 import { api } from "./api";
-import "App.css";
+import "./App.css";
  
 export default function App() {
   const [fileTree, setFileTree] = useState<FileNode[]>([]);
