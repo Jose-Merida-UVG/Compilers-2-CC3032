@@ -157,17 +157,13 @@ function TreeNode({ node, depth, activeFile, onOpen, onDelete, onCreateIn }: Nod
 }
 
 function displayName(node: FileNode): string {
-  if (!node.isDir && node.name.endsWith(".dfa"))
-    return node.name.replace(/\.dfa$/, "");
   return node.name;
 }
 
 function fileIcon(node: FileNode): string {
   if (node.isDir) return "📁";
-  if (node.name.endsWith(".yal"))     return "⚙";
-  if (node.name.endsWith(".go"))      return "🔷";
-  if (node.name.endsWith(".dfa"))      return "◎";
-  if (node.name.endsWith(".out"))     return "📋";
-  if (node.name.endsWith(".json"))    return "{}";
+  if (node.name.endsWith(".cps"))  return "⚙";
+  if (node.name.endsWith(".out"))  return "📋";
+  if (node.name.endsWith(".json")) return "{}";
   return "📄";
 }

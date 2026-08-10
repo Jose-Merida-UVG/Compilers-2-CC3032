@@ -1,5 +1,5 @@
 {
-  "name": "yalex-frontend",
+  "name": "compiscript-ide",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -9,11 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@dagrejs/dagre": "^2.0.4",
-    "@hpcc-js/wasm-graphviz": "^1.21.2",
     "@monaco-editor/react": "^4.6.0",
-    "@xyflow/react": "^12.3.6",
-    "elkjs": "^0.11.1",
     "monaco-editor": "^0.52.2",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

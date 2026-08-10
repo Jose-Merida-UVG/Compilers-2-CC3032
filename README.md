@@ -52,3 +52,31 @@ Two sample programs live in `tests/`:
 PYTHONPATH=generated:src python3 src/main.py tests/valid.cps
 PYTHONPATH=generated:src python3 src/main.py tests/invalid.cps
 ```
+
+## Web IDE (frontend + backend)
+
+There's also a browser-based IDE in `frontend/` (React + Monaco) backed by a
+small FastAPI server in `src/server.py`. It edits files under `workspace/`
+(seeded with copies of the two test programs) and runs them through the same
+lex/parse pipeline as the CLI (`src/compiler.py`, shared by both).
+
+Backend:
+
+```
+pip install -r requirements.txt
+PYTHONPATH=generated:src uvicorn server:app --app-dir src --reload --port 8080
+```
+
+Frontend (in another terminal):
+
+```
+cd frontend
+npm install
+npm run dev
+```
+
+Open the printed Vite URL (default `http://localhost:5173`). It proxies
+`/api/*` to the backend on port 8080 (see `frontend/vite.config.ts`). Open a
+`.cps` file in the explorer and click **▶ Run** to see lexical/syntax errors
+and the parse tree, both as text in the output panel and as a collapsible
+tree viewer.

@@ -1,0 +1,69 @@
+.parse-tree-viewer {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-editor);
+}
+
+.parse-tree-viewer__header {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.parse-tree-viewer__body {
+  flex: 1;
+  overflow: auto;
+  padding: 10px 8px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.pt-node {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+}
+
+.pt-node:not(.pt-node--leaf) {
+  cursor: pointer;
+}
+
+.pt-node:not(.pt-node--leaf):hover {
+  background: var(--bg-hover);
+}
+
+.pt-node__caret {
+  width: 12px;
+  flex-shrink: 0;
+  color: var(--text-muted);
+  font-size: 10px;
+  text-align: center;
+}
+
+.pt-node__rule {
+  color: var(--accent-text);
+  font-weight: 500;
+}
+
+.pt-node__leaf-text {
+  color: var(--color-success);
+}
+
+.pt-node__leaf-text::before {
+  content: '"';
+  color: var(--text-muted);
+}
+
+.pt-node__leaf-text::after {
+  content: '"';
+  color: var(--text-muted);
+}
+
+.pt-node__empty {
+  color: var(--text-muted);
+  font-style: italic;
+}

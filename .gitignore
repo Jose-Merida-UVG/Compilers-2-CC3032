@@ -1,3 +1,10 @@
 tools/*.jar
 __pycache__/
 *.pyc
+
+.venv/
+
+node_modules/
+frontend/dist/
+
+workspace/output/

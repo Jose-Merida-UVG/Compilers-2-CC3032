@@ -152,7 +152,7 @@
   flex: 1;
   overflow: hidden;
   min-height: 0;
-  /* Children (Monaco or DFAViewer) need a concrete parent height */
+  /* Children (Monaco or ParseTreeViewer) need a concrete parent height */
   display: flex;
   flex-direction: column;
 }

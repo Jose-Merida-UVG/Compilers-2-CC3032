@@ -1,6 +1,4 @@
-import type { FileNode, DFAGraphData, LexerOutput, ParserBuildResult, RunOutput, SLRData } from "../types";
-
-export type ParserBuildResponse = SLRData;
+import type { FileNode, RunOutput } from "../types";
 
 const BASE = "/api";
 
@@ -9,7 +7,7 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
   if (!res.ok) {
     const body = await res.text();
     let msg = body;
-    try { msg = JSON.parse(body).error ?? body; } catch { /* raw text */ }
+    try { msg = JSON.parse(body).detail ?? JSON.parse(body).error ?? body; } catch { /* raw text */ }
     throw new Error(msg || `HTTP ${res.status}`);
   }
   const ct = res.headers.get("content-type") ?? "";
@@ -45,15 +43,6 @@ export const api = {
 
   createDirectory: (path: string) =>
     req<void>("/directory", { ...json({ path }), method: "PUT" }),
-
-  getDFA: (path: string) =>
-    req<DFAGraphData>("/dfa", json({ path })),
-
-  runLexer: (inputPath: string) =>
-    req<LexerOutput>("/lexer", json({ inputPath })),
-
-  buildParser: (yalpPath: string) =>
-    req<ParserBuildResponse>("/yapar", json({ yalpPath })),
 
   run: (inputPath: string) =>
     req<RunOutput>("/run", json({ inputPath })),

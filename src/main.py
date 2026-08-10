@@ -1,24 +1,20 @@
 import sys
-from antlr4 import FileStream, CommonTokenStream
-from CompiscriptLexer import CompiscriptLexer
-from CompiscriptParser import CompiscriptParser
-from error_listener import CompiscriptErrorListener
 
-input_stream = FileStream(sys.argv[1], encoding="utf-8")
-lexer = CompiscriptLexer(input_stream)
+from compiler import analyze_file
 
-error_listener = CompiscriptErrorListener()
-lexer.removeErrorListeners()
-lexer.addErrorListener(error_listener)
 
-tokens = CommonTokenStream(lexer)
-parser = CompiscriptParser(tokens)
-parser.removeErrorListeners()
-parser.addErrorListener(error_listener)
+def main() -> None:
+    if len(sys.argv) < 2:
+        print("usage: python3 main.py <path-to-source-file>", file=sys.stderr)
+        sys.exit(1)
 
-tree = parser.program()
+    result = analyze_file(sys.argv[1])
 
-for err in error_listener.errors:
-    print(err)
+    for err in result["errors"]:
+        print(err)
 
-print(tree.toStringTree(recog=parser))
+    print(result["tree_string"])
+
+
+if __name__ == "__main__":
+    main()
