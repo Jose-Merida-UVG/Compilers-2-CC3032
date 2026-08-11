@@ -8,6 +8,7 @@ parse tree, and a JSON tree for the frontend's viewer.
 Run with:
     PYTHONPATH=generated:src uvicorn server:app --app-dir src --reload --port 8080
 """
+import json
 import shutil
 from pathlib import Path
 
@@ -155,11 +156,14 @@ def run_file(body: RunBody):
  
     result = analyze_file(str(p))
  
-    lines = list(result["errors"]) + [result["status_message"], result["tree_string"]]
- 
-    out_dir = WORKSPACE / "output"
-    out_dir.mkdir(exist_ok=True)
-    (out_dir / f"{p.name}.out").write_text("\n".join(lines), encoding="utf-8")
+    lines = list(result["errors"]) + [result["status_message"]]
+
+    run_dir = WORKSPACE / "output" / p.stem
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / f"{p.name}.out").write_text("\n".join(lines), encoding="utf-8")
+    (run_dir / f"{p.name}.tree").write_text(
+        json.dumps(result["tree_json"], ensure_ascii=False, indent=2), encoding="utf-8"
+    )
 
     return {
         "lines": lines,

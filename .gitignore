@@ -1,4 +1,4 @@
-tools/*.jar
+src/tools/*.jar
 __pycache__/
 *.pyc
 

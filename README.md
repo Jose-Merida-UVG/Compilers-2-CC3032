@@ -1,9 +1,9 @@
 # Compiscript — Lexical & Syntax Analysis
 
-ANTLR4-based lexer and parser for Compiscript, a small C-like language. Grammar
-lives in `grammar/Compiscript.g4`; ANTLR generates the lexer/parser into
-`generated/`. Currently covers lexical and syntax analysis only (no semantic
-analysis yet).
+ANTLR4-based lexer and parser for Compiscript, a small C-like language.
+Everything compiler-related (grammar, generated parser, CLI, server, tests)
+lives under `src/`; `frontend/` is the browser IDE UI. Currently covers
+lexical and syntax analysis only (no semantic analysis yet).
 
 ## Requirements
 
@@ -14,27 +14,32 @@ analysis yet).
 ## Install
 
 ```
-pip install -r requirements.txt
+make install
 ```
 
-The ANTLR tool jar is already vendored at `tools/antlr-4.13.2-complete.jar`
+This creates a `.venv` (if one doesn't already exist) and installs
+dependencies into it. Every other Python-facing target (`run`, `backend`,
+`test`) automatically uses `.venv` when present, falling back to the system
+`python3`/`pip` otherwise.
+
+The ANTLR tool jar is already vendored at `src/tools/antlr-4.13.2-complete.jar`
 (used only for regenerating the parser, not at runtime).
 
 ## Generating the parser
 
-Run this after any change to `grammar/Compiscript.g4`:
+Run this after any change to `src/grammar/Compiscript.g4`:
 
 ```
-./generate.sh
+make generate
 ```
 
 This regenerates `CompiscriptLexer.py`, `CompiscriptParser.py`,
-`CompiscriptVisitor.py`, and `CompiscriptListener.py` into `generated/`.
+`CompiscriptVisitor.py`, and `CompiscriptListener.py` into `src/generated/`.
 
 ## Running
 
 ```
-PYTHONPATH=generated:src python3 src/main.py <path-to-source-file>
+make run FILE=<path-to-source-file>
 ```
 
 This lexes and parses the file, prints any lexical/syntax errors, then prints
@@ -42,37 +47,37 @@ the resulting parse tree.
 
 ## Running the tests
 
-Two sample programs live in `tests/`:
-
-- `tests/valid.cps` — a well-formed program, should parse cleanly with no errors
-- `tests/invalid.cps` — contains a lexical error (illegal character) and two
-  syntax errors, to exercise error reporting
+Sample programs live in `src/tests/`, covering valid input plus lexical,
+syntax, and mixed errors.
 
 ```
-PYTHONPATH=generated:src python3 src/main.py tests/valid.cps
-PYTHONPATH=generated:src python3 src/main.py tests/invalid.cps
+make test
+```
+
+Or run one directly:
+
+```
+make run FILE=src/tests/valid.cps
 ```
 
 ## Web IDE (frontend + backend)
 
 There's also a browser-based IDE in `frontend/` (React + Monaco) backed by a
 small FastAPI server in `src/server.py`. It edits files under `workspace/`
-(seeded with copies of the two test programs) and runs them through the same
+(seeded with sample `.cps` programs) and runs them through the same
 lex/parse pipeline as the CLI (`src/compiler.py`, shared by both).
 
 Backend:
 
 ```
-pip install -r requirements.txt
-PYTHONPATH=generated:src uvicorn server:app --app-dir src --reload --port 8080
+make backend
 ```
 
 Frontend (in another terminal):
 
 ```
-cd frontend
-npm install
-npm run dev
+make frontend-install   # first time only
+make frontend-dev
 ```
 
 Open the printed Vite URL (default `http://localhost:5173`). It proxies

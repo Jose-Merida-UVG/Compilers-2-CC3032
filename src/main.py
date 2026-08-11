@@ -15,7 +15,6 @@ def main() -> None:
         print(err)
  
     print(result["status_message"])
-    print(result["tree_string"])
  
  
 if __name__ == "__main__":

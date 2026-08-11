@@ -61,7 +61,12 @@ export default function App() {
     if (existing) { setActiveTab(node.path); return; }
     try {
       const content = await api.readFile(node.path);
-      setTabs((prev) => [...prev, { path: node.path, label: node.name, content, isDirty: false }]);
+      if (node.path.endsWith(".tree")) {
+        const treeData = JSON.parse(content);
+        setTabs((prev) => [...prev, { path: node.path, label: node.name, content: "", isDirty: false, treeData }]);
+      } else {
+        setTabs((prev) => [...prev, { path: node.path, label: node.name, content, isDirty: false }]);
+      }
       setActiveTab(node.path);
     } catch (e: any) {
       appendTerminal(`Error opening ${node.path}: ${e.message}`);
@@ -120,10 +125,11 @@ export default function App() {
     try {
       const result = await api.run(inputPath);
       result.lines.forEach((l) => appendTerminal(l));
-      appendTerminal(`── salida guardada en output/${inputPath.split("/").pop()}.out ──`);
- 
+      const fileName = inputPath.split("/").pop() ?? "";
+      const base = fileName.replace(/\.cps$/, "");
+      appendTerminal(`── salida guardada en output/${base}/${fileName}.out (y .tree) ──`);
+
       if (result.tree) {
-        const base = inputPath.split("/").pop()?.replace(/\.cps$/, "") ?? "unknown";
         const treeTabPath = `${inputPath}::tree`;
         setTabs((prev) => {
           const idx = prev.findIndex((t) => t.path === treeTabPath);
@@ -133,7 +139,6 @@ export default function App() {
           if (idx >= 0) { const n = [...prev]; n[idx] = treeTab; return n; }
           return [...prev, treeTab];
         });
-        setActiveTab(treeTabPath);
       }
  
       await refreshTree();

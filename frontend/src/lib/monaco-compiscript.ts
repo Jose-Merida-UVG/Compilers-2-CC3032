@@ -88,7 +88,8 @@ export function registerCompiscriptLanguage(monaco: typeof Monaco) {
 
 /**
  * Registers the "cpsout" language for the .out files written by /api/run —
- * highlights [LEXICAL]/[SYNTAX...] error lines.
+ * highlights the Spanish "Error léxico"/"Error sintáctico" lines produced by
+ * error_listener.py, plus the trailing summary/success line.
  */
 export function registerOutputLanguage(monaco: typeof Monaco) {
   if (monaco.languages.getLanguages().some((l) => l.id === "cpsout")) return;
@@ -98,9 +99,13 @@ export function registerOutputLanguage(monaco: typeof Monaco) {
   monaco.languages.setMonarchTokensProvider("cpsout", {
     tokenizer: {
       root: [
-        [/^\[(LEXICAL|SYNTAX[^\]]*)\].*$/, "out.error"],
-        [/\bline \d+:\d+\b/, "out.label"],
-        [/\([a-zA-Z_][a-zA-Z0-9_]*/, "out.rule"],
+        [/^Error léxico\b.*$/, "out.lexical"],
+        [/^Error sintáctico\b.*$/, "out.syntax"],
+        [/^Se encontraron .*$/, "out.summary"],
+        [/^El archivo fue analizado correctamente\..*$/, "out.success"],
+        [/^No se encontraron errores.*$/, "out.success"],
+        [/\bl[ií]nea \d+, columna \d+\b/, "out.location"],
+        [/'[^']*'/, "out.token"],
         [/\s+/, "white"],
       ],
     },
@@ -110,9 +115,12 @@ export function registerOutputLanguage(monaco: typeof Monaco) {
     base: "vs-dark",
     inherit: true,
     rules: [
-      { token: "out.error", foreground: "f87171", fontStyle: "bold" },
-      { token: "out.label", foreground: "89ddff" },
-      { token: "out.rule",  foreground: "82aaff" },
+      { token: "out.lexical",  foreground: "f87171", fontStyle: "bold" },
+      { token: "out.syntax",   foreground: "fb923c", fontStyle: "bold" },
+      { token: "out.summary",  foreground: "fbbf24", fontStyle: "italic" },
+      { token: "out.success",  foreground: "4ade80", fontStyle: "bold" },
+      { token: "out.location", foreground: "89ddff" },
+      { token: "out.token",    foreground: "c3e88d" },
     ],
     colors: {
       "editor.background":           "#14141a",
