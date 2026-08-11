@@ -1,15 +1,19 @@
 # Compiscript — Lexical & Syntax Analysis
 
-ANTLR4-based lexer and parser for Compiscript, a small C-like language.
-Everything compiler-related (grammar, generated parser, CLI, server, tests)
-lives under `src/`; `frontend/` is the browser IDE UI. Currently covers
-lexical and syntax analysis only (no semantic analysis yet).
+ANTLR4-based lexer and parser for Compiscript, a small language that's
+essentially a subset of TypeScript (`let`/`const`/`var` declarations, `:
+type` annotations, functions, classes, control flow, etc. — see
+`src/grammar/Compiscript.g4` for the exact grammar). Everything
+compiler-related (grammar, generated parser, CLI, server) lives under
+`src/`; `frontend/` is a browser IDE UI for editing and running `.cps`
+files. Currently covers lexical and syntax analysis only (no semantic
+analysis yet).
 
 ## Requirements
 
 - Java (JRE 11+) — only needed to run the ANTLR tool jar for code generation
 - Python 3.8+
-- `antlr4-python3-runtime` (must match the ANTLR jar version)
+- Node.js — only needed for the frontend
 
 ## Install
 
@@ -17,10 +21,16 @@ lexical and syntax analysis only (no semantic analysis yet).
 make install
 ```
 
-This creates a `.venv` (if one doesn't already exist) and installs
-dependencies into it. Every other Python-facing target (`run`, `backend`,
-`test`) automatically uses `.venv` when present, falling back to the system
-`python3`/`pip` otherwise.
+This creates a `.venv` at the repo root (if one doesn't already exist),
+installs the Python dependencies from `src/requirements.txt` into it, and
+runs `npm install` in `frontend/`.
+
+Every Python-facing Makefile target (`run`, `cli`) auto-detects `.venv`:
+if `.venv/bin/python3` / `.venv/bin/uvicorn` exist it uses those, otherwise
+it falls back to whatever `python3`/`uvicorn` are on your `PATH`. You never
+need to `source .venv/bin/activate` yourself — `make` handles it — but you
+can if you want a shell with the venv active for e.g. running `python3`
+ad-hoc.
 
 The ANTLR tool jar is already vendored at `src/tools/antlr-4.13.2-complete.jar`
 (used only for regenerating the parser, not at runtime).
@@ -33,55 +43,53 @@ Run this after any change to `src/grammar/Compiscript.g4`:
 make generate
 ```
 
-This regenerates `CompiscriptLexer.py`, `CompiscriptParser.py`,
-`CompiscriptVisitor.py`, and `CompiscriptListener.py` into `src/generated/`.
+This runs `src/generate.sh`, which invokes the ANTLR jar and regenerates
+`CompiscriptLexer.py`, `CompiscriptParser.py`, `CompiscriptVisitor.py`, and
+`CompiscriptListener.py` into `src/generated/`. Files in `src/generated/`
+are build output — never edit them by hand, edit the grammar and regenerate.
 
-## Running
-
-```
-make run FILE=<path-to-source-file>
-```
-
-This lexes and parses the file, prints any lexical/syntax errors, then prints
-the resulting parse tree.
-
-## Running the tests
-
-Sample programs live in `src/tests/`, covering valid input plus lexical,
-syntax, and mixed errors.
+## Running a single file (CLI)
 
 ```
-make test
+make cli FILE=<path-to-source-file>
 ```
 
-Or run one directly:
+e.g.:
 
 ```
-make run FILE=src/tests/valid.cps
+make cli FILE=workspace/input/comp-baja/baja-val.cps
 ```
 
-## Web IDE (frontend + backend)
+This lexes and parses the file and prints any lexical/syntax errors (in
+Spanish) followed by a status line summarizing the result.
 
-There's also a browser-based IDE in `frontend/` (React + Monaco) backed by a
-small FastAPI server in `src/server.py`. It edits files under `workspace/`
-(seeded with sample `.cps` programs) and runs them through the same
-lex/parse pipeline as the CLI (`src/compiler.py`, shared by both).
-
-Backend:
+## Web IDE (frontend + backend together)
 
 ```
-make backend
+make run
 ```
 
-Frontend (in another terminal):
+This starts both the FastAPI backend (`src/server.py`, port 8080, with
+`--reload`) and the Vite frontend dev server together, and stops both on
+Ctrl+C. Open the printed Vite URL (default `http://localhost:5173`) — it
+proxies `/api/*` to the backend (see `frontend/vite.config.ts`).
+
+The backend serves a small file-CRUD API over `workspace/` (repo root,
+pre-seeded with sample `.cps` programs under `workspace/input/`) plus
+`/api/run`, which lexes + parses a file through the same pipeline as the
+CLI (`src/compiler.py`, shared by both entrypoints) and returns errors, a
+status message, and a JSON parse tree for the viewer.
+
+In the IDE: open a `.cps` file in the sidebar explorer and click **▶ Run**.
+Errors and the status line print to the terminal panel, and each run also
+writes a persistent `output/<filename>/<filename>.out` (plain-text output)
+and `output/<filename>/<filename>.tree` (JSON parse tree) into the
+workspace — both reopenable from the sidebar afterwards, with the `.tree`
+file rendered in the same collapsible tree viewer used right after a run.
+
+## Cleaning up
 
 ```
-make frontend-install   # first time only
-make frontend-dev
+make clean       # removes __pycache__ dirs and workspace/output/
+make distclean    # clean, plus removes .venv
 ```
-
-Open the printed Vite URL (default `http://localhost:5173`). It proxies
-`/api/*` to the backend on port 8080 (see `frontend/vite.config.ts`). Open a
-`.cps` file in the explorer and click **▶ Run** to see lexical/syntax errors
-and the parse tree, both as text in the output panel and as a collapsible
-tree viewer.
