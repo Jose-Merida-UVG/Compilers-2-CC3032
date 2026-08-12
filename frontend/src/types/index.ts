@@ -15,7 +15,7 @@ export interface ParseTreeNode {
 }
 
 export interface RunOutput {
-  /** Terminal-ready lines: errors, status message, then the LISP-style parse tree string. */
+  /** Terminal-ready lines: errors, then the status message. */
   lines: string[];
   /** Lexical/syntax error messages only. */
   errors: string[];

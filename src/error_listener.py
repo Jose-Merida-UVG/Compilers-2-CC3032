@@ -1,8 +1,7 @@
-import re
-
 from antlr4.error.ErrorListener import ErrorListener
 from antlr4.Lexer import Lexer
 
+# Maps token names -> friendlier text in spanish
 FRIENDLY_TOKEN_NAMES = {
     "Identifier": "un identificador",
     "Literal": "un literal (número o cadena de texto)",
@@ -15,8 +14,8 @@ MAX_EXPECTED = 6
 
 
 class CompiscriptErrorListener(ErrorListener):
-    """Recolecta errores léxicos y sintácticos, en español y con el detalle
-    necesario para que el usuario los entienda y los ubique en el archivo."""
+    """Collect lexical and syntax errors, in Spanish and with enough detail
+    for the user to understand them and locate them in the file."""
 
     def __init__(self):
         super().__init__()
@@ -28,18 +27,16 @@ class CompiscriptErrorListener(ErrorListener):
         else:
             self._syntax_error(recognizer, offendingSymbol, line, column, msg, e)
 
-    # ── errores léxicos ──────────────────────────────────────────────────
+    # Lexical errors
 
     def _lexical_error(self, recognizer, line, column, msg):
-        # `recognizer.text` suele venir vacío en este punto porque el token
-        # todavía no se ha consumido. El texto real del carácter/lexema que
-        # falló sí viene embebido en `msg`, que ANTLR arma como:
-        #   "token recognition error at: '@'"
-        match = re.search(r"token recognition error at: '(.*)'", msg)
-        bad_text = match.group(1) if match else recognizer.text
-        # ANTLR a veces incluye un carácter de más de contexto (p. ej. un
-        # espacio) al reportar el intento fallido; se recorta para que el
-        # mensaje muestre solo el símbolo relevante.
+        # Mirrors Lexer.notifyListeners(): start = token-start index, stop = current input index.
+        start = recognizer._tokenStartCharIndex
+        stop = recognizer._input.index
+        bad_text = recognizer._input.getText(start, stop)
+        # ANTLR sometimes includes one extra character of context (e.g. a
+        # space) in the failed match; strip it so the message shows only the
+        # relevant symbol.
         bad_text = bad_text.strip() or bad_text
 
         self.errors.append(
@@ -47,7 +44,7 @@ class CompiscriptErrorListener(ErrorListener):
             f"carácter o secuencia no reconocida '{bad_text}'."
         )
 
-    # ── errores sintácticos ──────────────────────────────────────────────
+    # Syntax errors
 
     def _syntax_error(self, recognizer, offendingSymbol, line, column, msg, e):
         found = self._describe_found(recognizer, offendingSymbol)
@@ -72,12 +69,13 @@ class CompiscriptErrorListener(ErrorListener):
         return f"'{text}'" if friendly is None else f"{friendly} ('{text}')"
 
     def _token_type_name(self, recognizer, token_type):
-        """Nombre amigable en español para un tipo de token (por ejemplo
-        Identifier -> 'un identificador'), o None si es un token literal
-        que ya se lee bien tal cual ('if', '+', etc.)."""
+        """Return a friendly Spanish name for a token type (e.g.
+        Identifier -> 'un identificador'), or None for a literal token
+        that already reads fine as-is ('if', '+', etc.)."""
         symbolic = (
             recognizer.symbolicNames[token_type]
-            if token_type < len(recognizer.symbolicNames) and recognizer.symbolicNames[token_type]
+            if token_type < len(recognizer.symbolicNames)
+            and recognizer.symbolicNames[token_type]
             else None
         )
         if symbolic and symbolic != "<INVALID>" and symbolic in FRIENDLY_TOKEN_NAMES:
@@ -119,6 +117,3 @@ class CompiscriptErrorListener(ErrorListener):
         if len(names) == 1:
             return names[0]
         return ", ".join(names[:-1]) + " o " + names[-1]
-
-    def has_errors(self):
-        return len(self.errors) > 0

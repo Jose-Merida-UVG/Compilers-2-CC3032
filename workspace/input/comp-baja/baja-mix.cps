@@ -1,6 +1,6 @@
 // Caso de prueba: MIXTO, complejidad BAJA (>= 2 léxicos y >= 2 sintácticos).
 
-let edad@ integer = 20;
+let edad: integer = 20;
 let nombre: string = "Camila"
 let activo: boolean = true;
 

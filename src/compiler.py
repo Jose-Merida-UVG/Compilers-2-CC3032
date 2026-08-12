@@ -37,7 +37,6 @@ def analyze(input_stream: InputStream) -> dict:
       - errors: list[str]      lexical/syntax error messages (empty if none)
       - status_message: str    Spanish message: success text if no errors,
                                 otherwise a summary of how many were found
-      - tree_string: str       LISP-style parse tree (same as the old CLI output)
       - tree_json: dict        parse tree as a nested dict, for visualization
     """
     lexer = CompiscriptLexer(input_stream)
@@ -64,7 +63,6 @@ def analyze(input_stream: InputStream) -> dict:
     return {
         "errors": errors,
         "status_message": status_message,
-        "tree_string": tree.toStringTree(recog=parser),
         "tree_json": _tree_to_dict(tree, parser.ruleNames),
     }
 

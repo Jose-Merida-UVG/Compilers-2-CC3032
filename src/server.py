@@ -5,9 +5,10 @@ Serves a small file-CRUD API over a `workspace/` directory (repo root) plus a
 Compiscript lexer/parser (see compiler.py) and returns errors, the printable
 parse tree, and a JSON tree for the frontend's viewer.
 
-Run with:
+Runs with:
     PYTHONPATH=generated:src uvicorn server:app --app-dir src --reload --port 8080
 """
+
 import json
 import shutil
 from pathlib import Path
@@ -32,7 +33,8 @@ app.add_middleware(
 )
 
 
-# ── helpers ───────────────────────────────────────────────────────────────
+# Helpers
+
 
 def resolve(rel_path: str) -> Path:
     """Resolve a workspace-relative path, rejecting anything that escapes
@@ -56,7 +58,8 @@ def to_file_node(p: Path) -> dict:
     return {"name": p.name, "path": rel, "isDir": False}
 
 
-# ── request bodies ───────────────────────────────────────────────────────
+# Request bodies
+
 
 class FileWrite(BaseModel):
     path: str
@@ -80,15 +83,19 @@ class RunBody(BaseModel):
     inputPath: str
 
 
-# ── workspace tree ───────────────────────────────────────────────────────
+# Workspace tree
+
 
 @app.get("/api/workspace/tree")
 def workspace_tree():
-    children = sorted(WORKSPACE.iterdir(), key=lambda c: (not c.is_dir(), c.name.lower()))
+    children = sorted(
+        WORKSPACE.iterdir(), key=lambda c: (not c.is_dir(), c.name.lower())
+    )
     return [to_file_node(c) for c in children]
 
 
-# ── file CRUD ─────────────────────────────────────────────────────────────
+# File CRUD
+
 
 @app.get("/api/file", response_class=PlainTextResponse)
 def read_file(path: str = Query(...)):
@@ -146,16 +153,17 @@ def create_directory(body: DirCreate):
     return {"ok": True}
 
 
-# ── run (lex + parse) ────────────────────────────────────────────────────
+# run = lex + parse
+
 
 @app.post("/api/run")
 def run_file(body: RunBody):
     p = resolve(body.inputPath)
     if not p.is_file():
         raise HTTPException(status_code=404, detail="File not found")
- 
+
     result = analyze_file(str(p))
- 
+
     lines = list(result["errors"]) + [result["status_message"]]
 
     run_dir = WORKSPACE / "output" / p.stem
