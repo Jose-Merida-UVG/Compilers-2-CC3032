@@ -21,7 +21,7 @@ while (contador < 3) {
   contador = contador + 1;
 }
 
-switch contador) {
+switch (contador) {
   case 3:
     print("llegó a tres");
   default:

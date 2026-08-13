@@ -31,7 +31,7 @@ switch (contador) {
 }
 
 let numeros: integer[] = [10, 20, 30];
-print(numeros[0]);
+pint(numeros[0]);
 
 class Animal {
   var nombre: string;

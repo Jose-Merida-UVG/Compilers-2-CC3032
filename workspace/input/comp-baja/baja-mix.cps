@@ -2,7 +2,7 @@
 
 let edad: integer = 20;
 let nombre: string = "Camila"
-let activo: boolean = true;
+let activo#: boolean = true;
 
 const limite: integer = 100;
 
