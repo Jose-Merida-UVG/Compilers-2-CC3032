@@ -117,3 +117,4 @@ class CompiscriptErrorListener(ErrorListener):
         if len(names) == 1:
             return names[0]
         return ", ".join(names[:-1]) + " o " + names[-1]
+    
