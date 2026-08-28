@@ -10,6 +10,7 @@ from antlr4.tree.Tree import TerminalNode
 from CompiscriptLexer import CompiscriptLexer
 from CompiscriptParser import CompiscriptParser
 from error_listener import CompiscriptErrorListener
+from semantic.checker import SemanticChecker
 
 SUCCESS_MESSAGE = (
     "El archivo fue analizado correctamente. "
@@ -51,8 +52,17 @@ def analyze(input_stream: InputStream) -> dict:
     parser.addErrorListener(error_listener)
  
     tree = parser.program()
- 
+
     errors = list(error_listener.errors)
+
+    # Semantic analysis only runs on a clean tree: if ANTLR had to
+    # error-recover through lexical/syntax errors, walking the result would
+    # likely produce noisy, misleading semantic errors on top of the real
+    # ones (see semantic/checker.py's module docstring).
+    if not errors:
+        semantic_errors = SemanticChecker().check(tree)
+        errors.extend(semantic_errors.as_strings())
+
     if errors:
         n = len(errors)
         noun = "error" if n == 1 else "errores"
