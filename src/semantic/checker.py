@@ -151,21 +151,39 @@ class SemanticChecker(CompiscriptVisitor):
         return symbol.type
 
     def visitAssignment(self, ctx: CompiscriptParser.AssignmentContext):
-        # TODO(Persona 1): this is the statement-level rule
-        # (`Identifier '=' expression ';'` or the property-assignment
-        # alternative), NOT visitAssignExpr below -- `statement` tries
-        # `assignment` before `expressionStatement`, so a plain `x = 5;`
-        # always parses through *this* method. visitAssignExpr (Persona 2)
-        # only fires when an assignment shows up nested inside a larger
-        # expression (e.g. `print(x = 5)`), which is rare in practice.
-        # For the plain-identifier alternative: resolve(name), error
-        # "variable no declarada" if None -- same rule as
-        # visitIdentifierExpr, just on the lhs. Coordinate with Persona 2
-        # on the rhs-type-must-be-assignable check (shared with
-        # visitAssignExpr's TODO) so the logic isn't duplicated. The
-        # property-assignment alternative overlaps with Persona 3's
-        # '.' access work (visitPropertyAccessExpr) -- whoever gets here
-        # first should tag the other.
+        # This is the statement-level rule (`Identifier '=' expression ';'`
+        # or the property-assignment alternative), NOT visitAssignExpr
+        # below -- `statement` tries `assignment` before
+        # `expressionStatement`, so a plain `x = 5;` always parses through
+        # *this* method. visitAssignExpr (Persona 2) only fires when an
+        # assignment shows up nested inside a larger expression (e.g.
+        # `print(x = 5)`), which is rare in practice.
+        #
+        # Both alternatives share this same (unlabeled) context class, so
+        # ctx.Identifier() alone can't tell them apart -- ctx.expression()
+        # returns 1 item for the plain form (just the rhs) and 2 for the
+        # property form (target object + rhs), which is how we tell them
+        # apart below.
+        exprs = ctx.expression()
+        if len(exprs) == 1:
+            # Plain form: Identifier '=' expression ';'
+            name = ctx.Identifier().getText()
+            if self.symbols.resolve(name) is None:
+                self._error(ctx, f"la variable '{name}' no ha sido declarada")
+            # TODO(coordinate with Persona 2): once expression type
+            # visiting exists, check the rhs type is assignable to the
+            # resolved symbol's type (Type.is_assignable_to), and narrow
+            # UnknownType here on its first assignment -- shared logic
+            # with visitAssignExpr's TODO, don't duplicate it there.
+            return self.visitChildren(ctx)
+ 
+        # Property form: expression '.' Identifier '=' expression ';'
+        # (e.g. `obj.campo = valor;`). Validating that the property
+        # actually exists on the target's ClassType is Persona 3's '.'
+        # access work (visitPropertyAccessExpr) -- this just walks both
+        # expression subtrees so nested identifiers etc. still get
+        # visited. Whoever implements the property check first should tag
+        # the other.
         return self.visitChildren(ctx)
 
     def visitForeachStatement(self, ctx: CompiscriptParser.ForeachStatementContext):
