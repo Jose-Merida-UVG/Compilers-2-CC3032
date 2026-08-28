@@ -23,7 +23,7 @@ from CompiscriptParser import CompiscriptParser
 from CompiscriptVisitor import CompiscriptVisitor
 
 from semantic.errors import SemanticErrorList
-from semantic.symbols import SymbolTable
+from semantic.symbols import ScopeKind, SymbolTable
 
 Ctx = object  # any ANTLR ParserRuleContext -- avoids importing every *Context class here
 
@@ -48,10 +48,19 @@ class SemanticChecker(CompiscriptVisitor):
     # push/pop scopes with self.symbols.enter_scope(...)/.exit_scope().
 
     def visitBlock(self, ctx: CompiscriptParser.BlockContext):
-        # TODO(Persona 1): enter_scope(ScopeKind.BLOCK) around visitChildren,
-        # exit_scope() in a finally. Also where "código muerto" (statements
-        # after return/break/continue) is naturally detected -- Persona 3.
-        return self.visitChildren(ctx)
+        # New lexical scope per block. try/finally guarantees exit_scope()
+        # runs even if a statement inside raises/errors out mid-visit, so
+        # a bad block never leaves the scope stack unbalanced for the rest
+        # of the walk (see SymbolTable.exit_scope's docstring).
+        #
+        # Note for Persona 3: "código muerto" (statements after
+        # return/break/continue) is naturally detected right here, by
+        # noticing such a statement isn't the last child visited.
+        self.symbols.enter_scope(ScopeKind.BLOCK)
+        try:
+            return self.visitChildren(ctx)
+        finally:
+            self.symbols.exit_scope()
 
     def visitVariableDeclaration(self, ctx: CompiscriptParser.VariableDeclarationContext):
         # TODO(Persona 1): declare in current scope, error on redeclaration
