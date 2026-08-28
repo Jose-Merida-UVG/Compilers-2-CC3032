@@ -69,6 +69,44 @@ class SemanticChecker(CompiscriptVisitor):
         # None. Return the symbol's Type on success.
         return self.visitChildren(ctx)
 
+    def visitAssignment(self, ctx: CompiscriptParser.AssignmentContext):
+        # TODO(Persona 1): this is the statement-level rule
+        # (`Identifier '=' expression ';'` or the property-assignment
+        # alternative), NOT visitAssignExpr below -- `statement` tries
+        # `assignment` before `expressionStatement`, so a plain `x = 5;`
+        # always parses through *this* method. visitAssignExpr (Persona 2)
+        # only fires when an assignment shows up nested inside a larger
+        # expression (e.g. `print(x = 5)`), which is rare in practice.
+        # For the plain-identifier alternative: resolve(name), error
+        # "variable no declarada" if None -- same rule as
+        # visitIdentifierExpr, just on the lhs. Coordinate with Persona 2
+        # on the rhs-type-must-be-assignable check (shared with
+        # visitAssignExpr's TODO) so the logic isn't duplicated. The
+        # property-assignment alternative overlaps with Persona 3's
+        # '.' access work (visitPropertyAccessExpr) -- whoever gets here
+        # first should tag the other.
+        return self.visitChildren(ctx)
+
+    def visitForeachStatement(self, ctx: CompiscriptParser.ForeachStatementContext):
+        # TODO(Persona 1): the iterated expression must be an ArrayType;
+        # error otherwise. enter_scope(ScopeKind.BLOCK) for the body and
+        # declare the loop variable there with the array's element type
+        # (see types.py ArrayType.element), exit_scope() in a finally --
+        # same shape as visitBlock above. Persona 3 also needs this scope
+        # to exist so foreach bodies support break/continue like other
+        # loops (their loop-tracking counter should increment here too).
+        return self.visitChildren(ctx)
+
+    def visitTryCatchStatement(self, ctx: CompiscriptParser.TryCatchStatementContext):
+        # TODO(Persona 1, tentative -- confirm scope/typing decision with
+        # the team, this wasn't in the original division): `try` block
+        # needs its own BLOCK scope. `catch (err)` binds `err` in a new
+        # BLOCK scope over the catch block only; its type isn't specified
+        # anywhere in docs/plan-proyecto1.md -- suggest StringType or a
+        # dedicated ErrorType-like type for the caught value, decide as a
+        # team before implementing so it's not redone.
+        return self.visitChildren(ctx)
+
     # ── Persona 2: Sistema de Tipos + Funciones ─────────────────────────
 
     def visitConstantDeclaration(self, ctx: CompiscriptParser.ConstantDeclarationContext):
@@ -86,6 +124,23 @@ class SemanticChecker(CompiscriptVisitor):
 
     def visitMultiplicativeExpr(self, ctx: CompiscriptParser.MultiplicativeExprContext):
         # TODO(Persona 2): same numeric rules as visitAdditiveExpr.
+        return self.visitChildren(ctx)
+
+    def visitUnaryExpr(self, ctx: CompiscriptParser.UnaryExprContext):
+        # TODO(Persona 2): '-' requires an integer/float operand (result
+        # keeps that type); '!' requires a boolean operand (result is
+        # boolean). No TODO existed for this rule before -- same family as
+        # visitAdditiveExpr/visitMultiplicativeExpr above.
+        return self.visitChildren(ctx)
+ 
+    def visitTernaryExpr(self, ctx: CompiscriptParser.TernaryExprContext):
+        # TODO(Persona 2): only has a real ternary when the '?' alt is
+        # present (grammar makes it optional -- check ctx for the '?'
+        # token or the child count before treating this as anything but a
+        # passthrough of logicalOrExpr). Condition must be boolean; the
+        # two branch expressions must share/unify to a common type (or one
+        # promotes to the other per is_assignable_to) -- that result type
+        # is the ternary's type. No TODO existed for this rule before.
         return self.visitChildren(ctx)
 
     def visitLogicalOrExpr(self, ctx: CompiscriptParser.LogicalOrExprContext):
