@@ -23,7 +23,14 @@ from CompiscriptParser import CompiscriptParser
 from CompiscriptVisitor import CompiscriptVisitor
 
 from semantic.errors import SemanticErrorList
-from semantic.symbols import ScopeKind, SymbolTable
+from semantic.symbols import ScopeKind, Symbol, SymbolKind, SymbolTable
+from semantic.types import (
+    ArrayType,
+    ClassType,
+    PRIMITIVE_TYPES,
+    Type,
+    UnknownType,
+)
 
 Ctx = object  # any ANTLR ParserRuleContext -- avoids importing every *Context class here
 
@@ -42,6 +49,27 @@ class SemanticChecker(CompiscriptVisitor):
     def _error(self, ctx: Ctx, message: str) -> None:
         """Record a semantic error anchored at the start token of `ctx`."""
         self.errors.add(ctx.start.line, ctx.start.column, message)
+
+    def _resolve_type_node(self, type_ctx: CompiscriptParser.TypeContext) -> Type:
+        """Resolve a `type` parse node (`baseType ('[' ']')*`) to a
+        semantic Type. Shared helper -- not just Persona 1's concern:
+        function params/return types (Persona 2) and array element types
+        (Persona 3) need this exact same syntax -> Type mapping, so it
+        lives here once instead of being reimplemented per rule."""
+        base_name = type_ctx.baseType().getText()
+        result: Type = PRIMITIVE_TYPES.get(base_name)
+        if result is None:
+            # Not a primitive -> grammar's only other baseType alternative
+            # is a bare Identifier, i.e. a class name.
+            # TODO: validate the class was actually declared once class
+            # registration exists (visitClassDeclaration) -- for now this
+            # trusts the name and builds a ClassType regardless.
+            result = ClassType(base_name)
+        # `('[' ']')*` -- each '[' ']' pair adds one array dimension.
+        array_dims = (type_ctx.getChildCount() - 1) // 2
+        for _ in range(array_dims):
+            result = ArrayType(result)
+        return result
 
     # ── Persona 1: Tabla de Símbolos + Ámbito ───────────────────────────
     # declare/resolve via self.symbols (SymbolTable, see symbols.py);
@@ -63,10 +91,41 @@ class SemanticChecker(CompiscriptVisitor):
             self.symbols.exit_scope()
 
     def visitVariableDeclaration(self, ctx: CompiscriptParser.VariableDeclarationContext):
-        # TODO(Persona 1): declare in current scope, error on redeclaration
-        # in the *same* scope (resolve_local, not resolve). Type comes from
-        # typeAnnotation/initializer -- coordinate with Persona 2.
-        return self.visitChildren(ctx)
+            # 'let' and 'var' are two syntactic spellings of the same thing in
+            # this grammar (no separate SymbolKind for each) -- both declare a
+            # SymbolKind.VARIABLE.
+            name = ctx.Identifier().getText()
+    
+            if ctx.typeAnnotation():
+                declared_type: Type = self._resolve_type_node(ctx.typeAnnotation().type_())
+            else:
+                # TODO(coordinate with Persona 2): per the decision table in
+                # docs/plan-proyecto1.md, an unannotated `let x = <expr>;`
+                # should infer its type from the initializer -- once
+                # expression visiting returns real Types (Persona 2's work),
+                # replace this branch with
+                # `self.visit(ctx.initializer().expression())`. Until then,
+                # every unannotated declaration starts as UnknownType --
+                # same as the no-initializer case -- and gets narrowed on
+                # first assignment (visitAssignment's job).
+                declared_type = UnknownType()
+    
+            symbol = Symbol(
+                name=name,
+                kind=SymbolKind.VARIABLE,
+                type=declared_type,
+                line=ctx.start.line,
+                column=ctx.start.column,
+            )
+            if not self.symbols.declare(symbol):
+                self._error(ctx, f"la variable '{name}' ya fue declarada en este ámbito")
+    
+            # Declared *before* walking the initializer: `let x = x + 1;`
+            # resolves the rhs `x` to this new declaration rather than
+            # erroring as undeclared. Whether that should instead be a "used
+            # before initialized" error is an open question -- flag it to the
+            # team if a test case makes it matter.
+            return self.visitChildren(ctx)
 
     def visitClassDeclaration(self, ctx: CompiscriptParser.ClassDeclarationContext):
         # TODO(Persona 1): enter_scope(ScopeKind.CLASS), register members
