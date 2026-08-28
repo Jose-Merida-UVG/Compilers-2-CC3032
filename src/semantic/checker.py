@@ -27,6 +27,7 @@ from semantic.symbols import ScopeKind, Symbol, SymbolKind, SymbolTable
 from semantic.types import (
     ArrayType,
     ClassType,
+    ErrorType,
     PRIMITIVE_TYPES,
     Type,
     UnknownType,
@@ -133,9 +134,21 @@ class SemanticChecker(CompiscriptVisitor):
         return self.visitChildren(ctx)
 
     def visitIdentifierExpr(self, ctx: CompiscriptParser.IdentifierExprContext):
-        # TODO(Persona 1): resolve(name); error "variable no declarada" if
-        # None. Return the symbol's Type on success.
-        return self.visitChildren(ctx)
+        # Read-side counterpart to visitVariableDeclaration: resolve walks
+        # up through parent scopes (see Scope.resolve), so this also
+        # covers reading a variable from an enclosing function/block --
+        # closures fall out of this for free, no special-casing needed.
+        name = ctx.Identifier().getText()
+        symbol = self.symbols.resolve(name)
+        if symbol is None:
+            self._error(ctx, f"la variable '{name}' no ha sido declarada")
+            # ErrorType, not UnknownType: this *is* the error being
+            # reported, not a legitimately-unresolved-yet type -- returning
+            # ErrorType stops it from cascading into unrelated errors in
+            # whatever expression contains this identifier (see
+            # types.py's ErrorType docstring).
+            return ErrorType()
+        return symbol.type
 
     def visitAssignment(self, ctx: CompiscriptParser.AssignmentContext):
         # TODO(Persona 1): this is the statement-level rule

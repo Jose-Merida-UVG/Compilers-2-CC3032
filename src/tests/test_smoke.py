@@ -8,6 +8,14 @@ this file just guards the Fase 0 wiring itself:
      compiler.analyze() (it's a no-op today, so lexical/syntax results
      must be unaffected).
   2. The new `float` type/literal (grammar change) actually parses.
+
+(A third smoke test, `test_semantic_checker_is_still_a_noop`, guarded that
+the checker produced zero errors while every rule method was still an
+unimplemented `visitChildren` passthrough. It started failing -- as its own
+docstring said it eventually would -- once visitIdentifierExpr began
+reporting undeclared variables, so it was removed here. Real coverage for
+ámbito rules like that one now belongs in
+src/tests/semantic/ambito/valido_*.cps / invalido_*.cps instead.)
 """
 import glob
 import os
@@ -39,25 +47,3 @@ def test_float_type_and_literal_parse(tmp_path):
     )
     result = analyze_file(str(src))
     assert result["errors"] == []
-
-
-def test_semantic_checker_is_still_a_noop():
-    """Sanity check for Fase 0: until each rule method in
-    semantic/checker.py is filled in, valid syntax should never produce a
-    semantic error. This test should start failing (in a good way) as
-    people implement their rules -- update/remove it then."""
-    from semantic.checker import SemanticChecker
-
-    # Deliberately semantically wrong (undeclared var, type mismatch) but
-    # syntactically valid -- once ambito/tipos rules exist, this should
-    # start reporting errors; for now (no-op checker) it must not.
-    import CompiscriptLexer
-    import CompiscriptParser
-    from antlr4 import CommonTokenStream, InputStream
-
-    lexer = CompiscriptLexer.CompiscriptLexer(InputStream("let x: integer = \"oops\";\nprint(y);\n"))
-    parser = CompiscriptParser.CompiscriptParser(CommonTokenStream(lexer))
-    tree = parser.program()
-
-    result = SemanticChecker().check(tree)
-    assert result.as_strings() == []
