@@ -19,6 +19,8 @@ misleading semantic errors on top of real ones.
 """
 from __future__ import annotations
 
+from typing import Optional
+
 from CompiscriptParser import CompiscriptParser
 from CompiscriptVisitor import CompiscriptVisitor
 
@@ -129,9 +131,48 @@ class SemanticChecker(CompiscriptVisitor):
             return self.visitChildren(ctx)
 
     def visitClassDeclaration(self, ctx: CompiscriptParser.ClassDeclarationContext):
-        # TODO(Persona 1): enter_scope(ScopeKind.CLASS), register members
-        # (Persona 3 needs this for '.' access and `this`).
-        return self.visitChildren(ctx)
+        # `'class' Identifier (':' Identifier)? '{' classMember* '}'` --
+        # both the class name and the optional parent name are plain
+        # Identifier tokens on this same (unlabeled) context, in source
+        # order: index 0 is always the class's own name; index 1, if
+        # present, is the parent's name.
+        identifiers = ctx.Identifier()
+        class_name = identifiers[0].getText()
+ 
+        parent_type: Optional[ClassType] = None
+        if len(identifiers) > 1:
+            parent_name = identifiers[1].getText()
+            parent_symbol = self.symbols.resolve(parent_name)
+            if parent_symbol is None or parent_symbol.kind is not SymbolKind.CLASS:
+                self._error(ctx, f"la clase base '{parent_name}' no ha sido declarada")
+            elif isinstance(parent_symbol.type, ClassType):
+                parent_type = parent_symbol.type
+ 
+        class_type = ClassType(class_name, parent=parent_type)
+        symbol = Symbol(
+            name=class_name,
+            kind=SymbolKind.CLASS,
+            type=class_type,
+            line=ctx.start.line,
+            column=ctx.start.column,
+        )
+        if not self.symbols.declare(symbol):
+            self._error(ctx, f"la clase '{class_name}' ya fue declarada en este ámbito")
+ 
+        # New scope for the class body: this is what makes members declare
+        # into their own namespace instead of leaking into whatever scope
+        # contains the class declaration -- that leak was exactly the
+        # false "ya fue declarada" collision seen before this method
+        # existed (a top-level `let nombre` colliding with a class's own
+        # `var nombre` member, since classMember visits fell straight
+        # through to visitVariableDeclaration with no scope in between).
+        # Persona 3 needs this same CLASS-kind scope for '.' access and
+        # `this` (Scope.enclosing(ScopeKind.CLASS)).
+        self.symbols.enter_scope(ScopeKind.CLASS)
+        try:
+            return self.visitChildren(ctx)
+        finally:
+            self.symbols.exit_scope()
 
     def visitIdentifierExpr(self, ctx: CompiscriptParser.IdentifierExprContext):
         # Read-side counterpart to visitVariableDeclaration: resolve walks
