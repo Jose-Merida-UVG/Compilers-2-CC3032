@@ -254,23 +254,57 @@ class SemanticChecker(CompiscriptVisitor):
         return self.visitChildren(ctx)
 
     def visitForeachStatement(self, ctx: CompiscriptParser.ForeachStatementContext):
-        # TODO(Persona 1): the iterated expression must be an ArrayType;
-        # error otherwise. enter_scope(ScopeKind.BLOCK) for the body and
-        # declare the loop variable there with the array's element type
-        # (see types.py ArrayType.element), exit_scope() in a finally --
-        # same shape as visitBlock above. Persona 3 also needs this scope
-        # to exist so foreach bodies support break/continue like other
-        # loops (their loop-tracking counter should increment here too).
-        return self.visitChildren(ctx)
+        # 'foreach' '(' Identifier 'in' expression ')' block
+        name = ctx.Identifier().getText()
+ 
+        # Visited directly (not via visitChildren) so we can inspect its
+        # resolved type before deciding the loop variable's type, and so
+        # it isn't visited a second time when we walk the block below.
+        iterated_type = self.visit(ctx.expression())
+ 
+        if iterated_type is None:
+            # Some part of the type-inference chain for this expression
+            # isn't implemented yet (e.g. array literals -- Persona 3 --
+            # or call expressions -- Persona 2), so we genuinely don't
+            # know yet. Stay silent rather than raise a false "no es un
+            # arreglo" error; this should stop happening on its own as
+            # those rules land.
+            element_type: Type = UnknownType()
+        elif isinstance(iterated_type, ArrayType):
+            element_type = iterated_type.element
+        elif isinstance(iterated_type, ErrorType):
+            # Don't cascade: whatever produced this ErrorType already
+            # reported its own error.
+            element_type = ErrorType()
+        else:
+            self._error(ctx, "la expresión de 'foreach' debe ser un arreglo")
+            element_type = ErrorType()
+ 
+        # New BLOCK scope for the body, same shape as visitBlock: the loop
+        # variable lives only inside it, with the array's element type.
+        # Persona 3 needs this same scope to exist so foreach bodies
+        # support break/continue like other loops (their loop-tracking
+        # counter should increment here too).
+        self.symbols.enter_scope(ScopeKind.BLOCK)
+        try:
+            self.symbols.declare(
+                Symbol(
+                    name=name,
+                    kind=SymbolKind.VARIABLE,
+                    type=element_type,
+                    line=ctx.start.line,
+                    column=ctx.start.column,
+                )
+            )
+            return self.visit(ctx.block())
+        finally:
+            self.symbols.exit_scope()
 
     def visitTryCatchStatement(self, ctx: CompiscriptParser.TryCatchStatementContext):
-        # TODO(Persona 1, tentative -- confirm scope/typing decision with
-        # the team, this wasn't in the original division): `try` block
-        # needs its own BLOCK scope. `catch (err)` binds `err` in a new
-        # BLOCK scope over the catch block only; its type isn't specified
-        # anywhere in docs/plan-proyecto1.md -- suggest StringType or a
-        # dedicated ErrorType-like type for the caught value, decide as a
-        # team before implementing so it's not redone.
+        # OUT OF SCOPE (team decision): this wasn't in
+        # docs/plan-proyecto1.md's division, and the team decided not to
+        # add semantic checking for try/catch for this project. Left as a
+        # plain passthrough on purpose -- not a forgotten TODO.
         return self.visitChildren(ctx)
 
     # ── Persona 2: Sistema de Tipos + Funciones ─────────────────────────
