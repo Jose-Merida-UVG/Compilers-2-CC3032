@@ -28,11 +28,18 @@ from semantic.errors import SemanticErrorList
 from semantic.symbols import ScopeKind, Symbol, SymbolKind, SymbolTable
 from semantic.types import (
     ArrayType,
+    BooleanType,
     ClassType,
     ErrorType,
+    FloatType,
+    FunctionType,
+    IntegerType,
+    NullType,
     PRIMITIVE_TYPES,
+    StringType,
     Type,
     UnknownType,
+    VoidType,
 )
 
 Ctx = object  # any ANTLR ParserRuleContext -- avoids importing every *Context class here
@@ -42,6 +49,11 @@ class SemanticChecker(CompiscriptVisitor):
     def __init__(self) -> None:
         self.symbols = SymbolTable()
         self.errors = SemanticErrorList()
+        # Persona 2 state (funciones/llamadas) -- see visitFunctionDeclaration,
+        # visitReturnStatement, visitLeftHandSide/visitCallExpr below for how
+        # each is pushed/read/popped.
+        self._function_return_stack: list[Type] = []
+        self._chain_base: Optional[Type] = None
 
     def check(self, tree: Ctx) -> SemanticErrorList:
         self.visit(tree)
@@ -73,6 +85,20 @@ class SemanticChecker(CompiscriptVisitor):
         for _ in range(array_dims):
             result = ArrayType(result)
         return result
+
+    @staticmethod
+    def _is_numeric(t: Type) -> bool:
+        return isinstance(t, (IntegerType, FloatType))
+
+    @staticmethod
+    def _operator_before(ctx: Ctx, i: int) -> str:
+        """Text of the operator token immediately before the i-th operand
+        (i >= 1) of a left-associative `sub (OP sub)*` rule -- children
+        alternate operand, operator, operand, operator, ..., so the
+        operator sits at index 2*i-1. Shared by every binary-expression
+        rule in Persona 2's section below (additive, multiplicative,
+        relational, equality, logical)."""
+        return ctx.getChild(2 * i - 1).getText()
 
     # ── Persona 1: Tabla de Símbolos + Ámbito ───────────────────────────
     # declare/resolve via self.symbols (SymbolTable, see symbols.py);
@@ -248,82 +274,413 @@ class SemanticChecker(CompiscriptVisitor):
         return self.visitChildren(ctx)
 
     # ── Persona 2: Sistema de Tipos + Funciones ─────────────────────────
+    #
+    # visitLiteralExpr/visitPrimaryExpr/visitLeftHandSide below weren't
+    # anyone's TODO in the Fase 0 skeleton, but the rest of this section
+    # can't produce a real Type without them (literals are the base case
+    # of every expression, and the default ANTLR visitChildren aggregation
+    # silently returns None for a parenthesized `(expr)` and can't thread
+    # a call's callee type into visitCallExpr at all) -- claiming them
+    # here since "sistema de tipos" is this section's whole job.
+
+    def visitLiteralExpr(self, ctx: CompiscriptParser.LiteralExprContext):
+        # literalExpr: Literal | arrayLiteral | 'null' | 'true' | 'false';
+        # NOTE: the grammar's `Literal` lexer rule is declared *before*
+        # FloatLiteral/IntegerLiteral/StringLiteral and matches the exact
+        # same spans as all three -- ANTLR's earliest-rule tiebreak means
+        # every numeric/string literal actually lexes as token type
+        # `Literal`, never as the more specific ones (verified against the
+        # generated lexer). So the specific kind has to be sniffed from
+        # the literal's own text here instead of from the token type.
+        if ctx.Literal() is not None:
+            text = ctx.Literal().getText()
+            if text.startswith('"'):
+                return StringType()
+            if '.' in text:
+                return FloatType()
+            return IntegerType()
+        if ctx.arrayLiteral() is not None:
+            # Persona 3's rule (arreglos) -- passthrough for whatever it
+            # eventually returns.
+            return self.visit(ctx.arrayLiteral())
+        text = ctx.getText()
+        if text == "null":
+            return NullType()
+        # Only remaining grammar alternative is 'true' | 'false'.
+        return BooleanType()
+
+    def visitPrimaryExpr(self, ctx: CompiscriptParser.PrimaryExprContext):
+        # primaryExpr: literalExpr | leftHandSide | '(' expression ')';
+        # Needs an explicit override: for the parenthesized alternative,
+        # ANTLR's default child-aggregation would return the *last*
+        # child's result, i.e. the closing ')' terminal -- None, not the
+        # inner expression's type.
+        if ctx.literalExpr() is not None:
+            return self.visit(ctx.literalExpr())
+        if ctx.leftHandSide() is not None:
+            return self.visit(ctx.leftHandSide())
+        return self.visit(ctx.expression())
+
+    def visitLeftHandSide(self, ctx: CompiscriptParser.LeftHandSideContext):
+        # leftHandSide: primaryAtom (suffixOp)*; -- e.g. `foo`, `foo(1,2)`,
+        # `obj.campo`, `arr[0]`, or a chain like `obj.metodo(1).campo`.
+        # Each suffixOp needs the type of *what came before it in the
+        # chain* (the callee for a call, the array for an index, the
+        # object for a property access) -- that's not available from the
+        # suffixOp's own ctx, so it's threaded through `self._chain_base`
+        # right before visiting each one.
+        #
+        # For Persona 3 (visitIndexExpr/visitPropertyAccessExpr/
+        # visitNewExpr/visitThisExpr): read `self._chain_base` immediately
+        # at the top of your method, before visiting any nested subtree
+        # (e.g. an index expression) that could itself be a chain and
+        # overwrite it before you've read it.
+        current: Type = self.visit(ctx.primaryAtom())
+        for suffix in ctx.suffixOp():
+            self._chain_base = current
+            current = self.visit(suffix)
+        return current
 
     def visitConstantDeclaration(self, ctx: CompiscriptParser.ConstantDeclarationContext):
-        # TODO(Persona 2): initializer is mandatory for const (grammar
-        # already enforces this syntactically -- '=' expression is
-        # required, not optional -- so this is really about checking the
-        # expression's type matches typeAnnotation, if present).
-        return self.visitChildren(ctx)
+        # constantDeclaration: 'const' Identifier typeAnnotation? '=' expression ';'
+        # The grammar already makes the initializer mandatory (it's not
+        # `initializer?` like variableDeclaration, just a bare
+        # '=' expression), so "const must be initialized" falls out for
+        # free -- this is really just declare + type-check, mirroring
+        # visitVariableDeclaration's shape (Persona 1) but for CONSTANT
+        # and with no UnknownType branch: a const's type is settled here,
+        # for good, since it can never be reassigned afterward.
+        name = ctx.Identifier().getText()
+        value_type = self.visit(ctx.expression())
+
+        if ctx.typeAnnotation():
+            declared_type = self._resolve_type_node(ctx.typeAnnotation().type_())
+            if not isinstance(value_type, ErrorType) and not value_type.is_assignable_to(declared_type):
+                self._error(
+                    ctx,
+                    f"la constante '{name}' se declaró como {declared_type} "
+                    f"pero se inicializa con un valor de tipo {value_type}",
+                )
+            symbol_type: Type = declared_type
+        else:
+            symbol_type = ErrorType() if isinstance(value_type, ErrorType) else value_type
+
+        symbol = Symbol(
+            name=name,
+            kind=SymbolKind.CONSTANT,
+            type=symbol_type,
+            line=ctx.start.line,
+            column=ctx.start.column,
+        )
+        if not self.symbols.declare(symbol):
+            self._error(ctx, f"'{name}' ya fue declarada en este ámbito")
+        return None
 
     def visitAdditiveExpr(self, ctx: CompiscriptParser.AdditiveExprContext):
-        # TODO(Persona 2): operands must be integer/float (promote to
-        # float on a mix); '+' also needs to decide whether string
-        # concatenation is allowed here -- confirm with the team.
-        return self.visitChildren(ctx)
+        operands = ctx.multiplicativeExpr()
+        result: Type = self.visit(operands[0])
+        for i in range(1, len(operands)):
+            op = self._operator_before(ctx, i)
+            rhs = self.visit(operands[i])
+            result = self._check_additive(ctx, op, result, rhs)
+        return result
+
+    def _check_additive(self, ctx: Ctx, op: str, left: Type, right: Type) -> Type:
+        if isinstance(left, ErrorType) or isinstance(right, ErrorType):
+            return ErrorType()
+        # '+' doubles as string concatenation -- required by the
+        # language's own spec example (`return "Hola " + nombre;` in
+        # docs/DefinicionCompiscript.md), so this isn't purely numeric
+        # like '-' is.
+        if op == "+" and isinstance(left, StringType) and isinstance(right, StringType):
+            return StringType()
+        if self._is_numeric(left) and self._is_numeric(right):
+            return FloatType() if isinstance(left, FloatType) or isinstance(right, FloatType) else IntegerType()
+        expected = "integer, float, o string (solo para '+')" if op == "+" else "integer o float"
+        self._error(ctx, f"el operador '{op}' requiere operandos de tipo {expected}; se encontró {left} y {right}")
+        return ErrorType()
 
     def visitMultiplicativeExpr(self, ctx: CompiscriptParser.MultiplicativeExprContext):
-        # TODO(Persona 2): same numeric rules as visitAdditiveExpr.
-        return self.visitChildren(ctx)
+        operands = ctx.unaryExpr()
+        result: Type = self.visit(operands[0])
+        for i in range(1, len(operands)):
+            op = self._operator_before(ctx, i)
+            rhs = self.visit(operands[i])
+            if isinstance(result, ErrorType) or isinstance(rhs, ErrorType):
+                result = ErrorType()
+            elif self._is_numeric(result) and self._is_numeric(rhs):
+                result = FloatType() if isinstance(result, FloatType) or isinstance(rhs, FloatType) else IntegerType()
+            else:
+                self._error(ctx, f"el operador '{op}' requiere operandos de tipo integer o float; se encontró {result} y {rhs}")
+                result = ErrorType()
+        return result
 
     def visitUnaryExpr(self, ctx: CompiscriptParser.UnaryExprContext):
-        # TODO(Persona 2): '-' requires an integer/float operand (result
-        # keeps that type); '!' requires a boolean operand (result is
-        # boolean). No TODO existed for this rule before -- same family as
-        # visitAdditiveExpr/visitMultiplicativeExpr above.
-        return self.visitChildren(ctx)
- 
+        # unaryExpr: ('-' | '!') unaryExpr | primaryExpr;
+        if ctx.primaryExpr() is not None:
+            return self.visit(ctx.primaryExpr())
+
+        op = ctx.getChild(0).getText()
+        operand = self.visit(ctx.unaryExpr())
+        if isinstance(operand, ErrorType):
+            return ErrorType()
+        if op == "!":
+            if not isinstance(operand, BooleanType):
+                self._error(ctx, f"el operador '!' requiere un operando de tipo boolean; se encontró {operand}")
+                return ErrorType()
+            return BooleanType()
+        # op == '-'
+        if not self._is_numeric(operand):
+            self._error(ctx, f"el operador unario '-' requiere un operando de tipo integer o float; se encontró {operand}")
+            return ErrorType()
+        return operand
+
     def visitTernaryExpr(self, ctx: CompiscriptParser.TernaryExprContext):
-        # TODO(Persona 2): only has a real ternary when the '?' alt is
-        # present (grammar makes it optional -- check ctx for the '?'
-        # token or the child count before treating this as anything but a
-        # passthrough of logicalOrExpr). Condition must be boolean; the
-        # two branch expressions must share/unify to a common type (or one
-        # promotes to the other per is_assignable_to) -- that result type
-        # is the ternary's type. No TODO existed for this rule before.
-        return self.visitChildren(ctx)
+        # conditionalExpr: logicalOrExpr ('?' expression ':' expression)? # TernaryExpr;
+        cond = self.visit(ctx.logicalOrExpr())
+        branches = ctx.expression()
+        if not branches:
+            return cond  # no '?' present -- plain passthrough
+
+        if not isinstance(cond, (ErrorType, BooleanType)):
+            self._error(ctx, f"la condición del operador ternario debe ser boolean; se encontró {cond}")
+
+        then_type = self.visit(branches[0])
+        else_type = self.visit(branches[1])
+        if isinstance(then_type, ErrorType) or isinstance(else_type, ErrorType):
+            return ErrorType()
+        if then_type.is_assignable_to(else_type):
+            return else_type
+        if else_type.is_assignable_to(then_type):
+            return then_type
+        self._error(
+            ctx,
+            f"las dos ramas del operador ternario deben tener tipos compatibles; "
+            f"se encontró {then_type} y {else_type}",
+        )
+        return ErrorType()
 
     def visitLogicalOrExpr(self, ctx: CompiscriptParser.LogicalOrExprContext):
-        # TODO(Persona 2): operands must be boolean.
-        return self.visitChildren(ctx)
+        return self._check_logical(ctx, ctx.logicalAndExpr(), "||")
 
     def visitLogicalAndExpr(self, ctx: CompiscriptParser.LogicalAndExprContext):
-        # TODO(Persona 2): operands must be boolean.
-        return self.visitChildren(ctx)
+        return self._check_logical(ctx, ctx.equalityExpr(), "&&")
+
+    def _check_logical(self, ctx: Ctx, operands, op: str) -> Type:
+        # `sub (OP sub)*`: with a single operand (no OP actually present),
+        # this rule is a transparent link in the expression precedence
+        # chain -- EVERY expression flows through logicalOrExpr/
+        # logicalAndExpr on its way down to a literal, not just genuinely
+        # boolean ones, so the single-operand case must pass the real
+        # type through unchanged rather than coercing it to boolean.
+        result = self.visit(operands[0])
+        if len(operands) == 1:
+            return result
+        ok = True
+        if isinstance(result, ErrorType):
+            ok = False
+        elif not isinstance(result, BooleanType):
+            self._error(ctx, f"el operador '{op}' requiere operandos de tipo boolean; se encontró {result}")
+            ok = False
+        for operand_ctx in operands[1:]:
+            t = self.visit(operand_ctx)
+            if isinstance(t, ErrorType):
+                ok = False
+            elif not isinstance(t, BooleanType):
+                self._error(ctx, f"el operador '{op}' requiere operandos de tipo boolean; se encontró {t}")
+                ok = False
+        return BooleanType() if ok else ErrorType()
 
     def visitEqualityExpr(self, ctx: CompiscriptParser.EqualityExprContext):
-        # TODO(Persona 2): operands must be the same/compatible type.
-        return self.visitChildren(ctx)
+        # Same passthrough note as _check_logical above: with a single
+        # operand (no '=='/'!=' present) this must return the real type,
+        # not force BooleanType.
+        operands = ctx.relationalExpr()
+        result: Type = self.visit(operands[0])
+        if len(operands) == 1:
+            return result
+        ok = not isinstance(result, ErrorType)
+        for i in range(1, len(operands)):
+            op = self._operator_before(ctx, i)
+            rhs = self.visit(operands[i])
+            if isinstance(rhs, ErrorType):
+                ok = False
+            elif not (result.is_assignable_to(rhs) or rhs.is_assignable_to(result)):
+                self._error(ctx, f"el operador '{op}' requiere operandos de tipos compatibles; se encontró {result} y {rhs}")
+                ok = False
+            result = rhs
+        return BooleanType() if ok else ErrorType()
 
     def visitRelationalExpr(self, ctx: CompiscriptParser.RelationalExprContext):
-        # TODO(Persona 2): operands must be numeric (integer/float).
-        return self.visitChildren(ctx)
+        # Same passthrough note as _check_logical above: with a single
+        # operand (no '<'/'<='/'>'/'>=' present) this must return the real
+        # type, not force BooleanType.
+        operands = ctx.additiveExpr()
+        result: Type = self.visit(operands[0])
+        if len(operands) == 1:
+            return result
+        ok = not isinstance(result, ErrorType)
+        for i in range(1, len(operands)):
+            op = self._operator_before(ctx, i)
+            rhs = self.visit(operands[i])
+            if isinstance(rhs, ErrorType):
+                ok = False
+            elif not (self._is_numeric(result) and self._is_numeric(rhs)):
+                self._error(ctx, f"el operador '{op}' requiere operandos de tipo integer o float; se encontró {result} y {rhs}")
+                ok = False
+            result = rhs
+        return BooleanType() if ok else ErrorType()
+
+    def _resolve_assignment_target(self, lhs_ctx: CompiscriptParser.LeftHandSideContext):
+        """For a bare-identifier lhs (`x = ...`, no suffixOp), return
+        (symbol, its current type) so UnknownType can be narrowed in
+        visitAssignExpr on first assignment. For anything with suffixOps
+        (`arr[0] = ...`, `obj.campo = ...` reached through here, chains --
+        there's no single Symbol to narrow for those), return
+        (None, the visited type) for a plain compatibility check instead."""
+        if len(lhs_ctx.suffixOp()) == 0:
+            name = lhs_ctx.primaryAtom().getText()
+            symbol = self.symbols.resolve(name)
+            if symbol is None:
+                self._error(lhs_ctx, f"la variable '{name}' no ha sido declarada")
+                return None, ErrorType()
+            return symbol, symbol.type
+        return None, self.visit(lhs_ctx)
 
     def visitAssignExpr(self, ctx: CompiscriptParser.AssignExprContext):
-        # TODO(Persona 2): rhs type must be assignable to lhs's declared
-        # type (Type.is_assignable_to). Also where UnknownType (see
-        # types.py) gets narrowed on first assignment.
-        return self.visitChildren(ctx)
+        # assignmentExpr: lhs=leftHandSide '=' assignmentExpr # AssignExpr;
+        # This is the general form -- lhs can be a bare identifier *or* a
+        # chain like `arr[0]` (leftHandSide allows suffixOps), so it
+        # covers more than just "assignment nested in a larger expression"
+        # (e.g. `print(x = 5)`): `arr[0] = 5;` as a standalone statement
+        # also parses through here via expressionStatement, since it
+        # doesn't match the statement-level `assignment` rule's two
+        # simpler alternatives (see visitAssignment's comment, Persona 1).
+        rhs_type = self.visit(ctx.assignmentExpr())
+        symbol, target_type = self._resolve_assignment_target(ctx.lhs)
+
+        if isinstance(rhs_type, ErrorType) or isinstance(target_type, ErrorType):
+            return ErrorType()
+
+        if symbol is not None and isinstance(symbol.type, UnknownType):
+            symbol.type = rhs_type  # first assignment narrows it, for good
+            return rhs_type
+
+        if not rhs_type.is_assignable_to(target_type):
+            self._error(ctx, f"no se puede asignar un valor de tipo {rhs_type} a una variable de tipo {target_type}")
+            return ErrorType()
+        return target_type
 
     def visitFunctionDeclaration(self, ctx: CompiscriptParser.FunctionDeclarationContext):
-        # TODO(Persona 2): build a FunctionType from parameters/return
-        # type, declare it (Persona 1's SymbolTable.declare) so recursive
-        # calls resolve; enter_scope(ScopeKind.FUNCTION) for the body
-        # (Persona 1). Closures: a nested visitFunctionDeclaration should
-        # just work via the normal Scope.parent chain -- verify with a test.
-        return self.visitChildren(ctx)
+        # functionDeclaration: 'function' Identifier '(' parameters? ')' (':' type)? block;
+        name = ctx.Identifier().getText()
+
+        param_names: list[str] = []
+        param_types: list[Type] = []
+        if ctx.parameters():
+            for param_ctx in ctx.parameters().parameter():
+                param_names.append(param_ctx.Identifier().getText())
+                if param_ctx.type_():
+                    param_types.append(self._resolve_type_node(param_ctx.type_()))
+                else:
+                    # Untyped parameter: accepts any argument (see
+                    # UnknownType.is_assignable_to / the target-side
+                    # UnknownType case added to Type.is_assignable_to in
+                    # types.py for this exact case).
+                    param_types.append(UnknownType())
+
+        return_type: Type = self._resolve_type_node(ctx.type_()) if ctx.type_() else VoidType()
+        function_type = FunctionType(param_types, return_type)
+
+        symbol = Symbol(
+            name=name,
+            kind=SymbolKind.FUNCTION,
+            type=function_type,
+            line=ctx.start.line,
+            column=ctx.start.column,
+        )
+        # Declared in the *enclosing* scope, before entering the
+        # function's own scope below: that's what makes a recursive call
+        # inside the body resolve (it walks up through the function scope
+        # to find its own name here), and what lets the function be
+        # called from outside afterward. Redeclaring a name here is the
+        # "sin sobrecarga" rule from docs/plan-proyecto1.md.
+        if not self.symbols.declare(symbol):
+            self._error(ctx, f"la función '{name}' ya fue declarada en este ámbito (no se soporta sobrecarga)")
+
+        self.symbols.enter_scope(ScopeKind.FUNCTION)
+        self._function_return_stack.append(return_type)
+        try:
+            for param_name, param_type in zip(param_names, param_types):
+                param_symbol = Symbol(
+                    name=param_name,
+                    kind=SymbolKind.PARAMETER,
+                    type=param_type,
+                    line=ctx.start.line,
+                    column=ctx.start.column,
+                )
+                if not self.symbols.declare(param_symbol):
+                    self._error(ctx, f"el parámetro '{param_name}' está duplicado")
+            # Nested functions (closures): visiting the block here means a
+            # `function` declared inside this body runs this same method
+            # again, declaring the inner function into *this* FUNCTION
+            # scope (self.symbols.current at that point) -- its own body
+            # then chains up through here for outer locals/parameters, so
+            # closures fall out for free with no special-casing.
+            self.visit(ctx.block())
+        finally:
+            self._function_return_stack.pop()
+            self.symbols.exit_scope()
+        return None
 
     def visitCallExpr(self, ctx: CompiscriptParser.CallExprContext):
-        # TODO(Persona 2): arity + positional type-check against the
-        # callee's FunctionType.
-        return self.visitChildren(ctx)
+        # suffixOp: '(' arguments? ')' # CallExpr; -- only ever reached as
+        # a suffixOp of leftHandSide, which stashes the callee's type in
+        # self._chain_base right before visiting this (see
+        # visitLeftHandSide). Read it before visiting the arguments below:
+        # they can themselves contain a call/chain that would overwrite
+        # self._chain_base before we're done with it.
+        callee_type = self._chain_base
+
+        arg_exprs = ctx.arguments().expression() if ctx.arguments() else []
+        arg_types = [self.visit(a) for a in arg_exprs]
+
+        if isinstance(callee_type, ErrorType):
+            return ErrorType()
+        if not isinstance(callee_type, FunctionType):
+            self._error(ctx, f"solo se puede invocar una función; se encontró {callee_type}")
+            return ErrorType()
+
+        if len(arg_types) != len(callee_type.params):
+            self._error(
+                ctx,
+                f"se esperaban {len(callee_type.params)} argumento(s) y se recibieron {len(arg_types)}",
+            )
+            return ErrorType()
+
+        ok = True
+        for i, (arg_type, param_type) in enumerate(zip(arg_types, callee_type.params), start=1):
+            if isinstance(arg_type, ErrorType):
+                ok = False
+            elif not arg_type.is_assignable_to(param_type):
+                self._error(ctx, f"el argumento {i} debe ser de tipo {param_type}; se encontró {arg_type}")
+                ok = False
+        return callee_type.ret if ok else ErrorType()
 
     def visitReturnStatement(self, ctx: CompiscriptParser.ReturnStatementContext):
-        # TODO(Persona 2): expression type must match the enclosing
-        # function's declared return type. "must be inside a function at
-        # all" is Persona 3's rule (control de flujo) -- both checks live
-        # here since they read the same enclosing-function scope.
-        return self.visitChildren(ctx)
+        # "return solo dentro de una función" is Persona 3's rule (control
+        # de flujo) -- this guard just avoids an IndexError until that
+        # exists; it deliberately doesn't add its own error message so the
+        # two checks don't both fire for the same statement.
+        if not self._function_return_stack:
+            return self.visitChildren(ctx)
+
+        expected = self._function_return_stack[-1]
+        actual: Type = VoidType() if ctx.expression() is None else self.visit(ctx.expression())
+
+        if not isinstance(actual, ErrorType) and not actual.is_assignable_to(expected):
+            self._error(ctx, f"el valor de retorno debe ser de tipo {expected}; se encontró {actual}")
+        return None
 
     # ── Persona 3: Control de Flujo + Clases + Arreglos + Generales ─────
 

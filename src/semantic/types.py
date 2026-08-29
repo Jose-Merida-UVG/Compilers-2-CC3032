@@ -43,6 +43,12 @@ class Type:
         numeric promotion, null, class inheritance, etc."""
         if isinstance(self, ErrorType) or isinstance(target, ErrorType):
             return True
+        if isinstance(target, UnknownType):
+            # An untyped `let x;`/untyped parameter accepts anything until
+            # something narrows it (see UnknownType's own docstring) --
+            # needed e.g. for calling a function whose parameter has no
+            # `: type` annotation.
+            return True
         return self == target
 
 
