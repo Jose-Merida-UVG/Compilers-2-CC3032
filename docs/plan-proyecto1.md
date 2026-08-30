@@ -10,8 +10,11 @@
   regresión en lo que ya existía. Suite de tests con `pytest` creada
   (`make test`), con carpetas por categoría en `src/tests/semantic/` listas
   para que cada quien agregue sus casos.
-- ⏳ Reglas semánticas reales (Personas 1/2/3, ver división abajo):
-  pendiente.
+- ✅ **Persona 1 (Tabla de Símbolos + Ámbito)** completa — ver
+  [ModuloAmbito.md](./ModuloAmbito.md).
+- ✅ **Persona 2 (Sistema de Tipos + Funciones)** completa — ver
+  [ModuloTiposFunciones.md](./ModuloTiposFunciones.md).
+- ⏳ **Persona 3 (Control de Flujo + Clases + Arreglos + IDE)**: pendiente.
 
 ## Punto de partida
 

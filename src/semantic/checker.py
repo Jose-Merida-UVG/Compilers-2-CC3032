@@ -86,6 +86,19 @@ class SemanticChecker(CompiscriptVisitor):
             result = ArrayType(result)
         return result
 
+    def _visit_type(self, ctx: Ctx) -> Type:
+        """self.visit(ctx) on an expression is expected to yield a Type,
+        but a still-unimplemented Persona 3 rule (arrays, `new`, index/
+        property access) currently falls through to ANTLR's default
+        visitChildren and returns plain None instead of ErrorType. Every
+        Persona 2 method that immediately calls `.is_assignable_to(...)`
+        or similar on a freshly-visited value goes through this instead
+        of raw `self.visit(...)`, so that gap can't crash the checker --
+        treat None the same as ErrorType (already-covered territory,
+        don't cascade a second error)."""
+        result = self.visit(ctx)
+        return result if result is not None else ErrorType()
+
     @staticmethod
     def _is_numeric(t: Type) -> bool:
         return isinstance(t, (IntegerType, FloatType))
@@ -124,21 +137,17 @@ class SemanticChecker(CompiscriptVisitor):
             # this grammar (no separate SymbolKind for each) -- both declare a
             # SymbolKind.VARIABLE.
             name = ctx.Identifier().getText()
-    
+
             if ctx.typeAnnotation():
                 declared_type: Type = self._resolve_type_node(ctx.typeAnnotation().type_())
             else:
-                # TODO(coordinate with Persona 2): per the decision table in
-                # docs/plan-proyecto1.md, an unannotated `let x = <expr>;`
-                # should infer its type from the initializer -- once
-                # expression visiting returns real Types (Persona 2's work),
-                # replace this branch with
-                # `self.visit(ctx.initializer().expression())`. Until then,
-                # every unannotated declaration starts as UnknownType --
-                # same as the no-initializer case -- and gets narrowed on
-                # first assignment (visitAssignment's job).
+                # Coordination with Persona 2 resolved: narrowed from the
+                # initializer's type below (same mechanism as an
+                # UnknownType symbol's first assignment) once expression
+                # visiting exists. Stays UnknownType for `let x;` with no
+                # initializer at all.
                 declared_type = UnknownType()
-    
+
             symbol = Symbol(
                 name=name,
                 kind=SymbolKind.VARIABLE,
@@ -148,12 +157,24 @@ class SemanticChecker(CompiscriptVisitor):
             )
             if not self.symbols.declare(symbol):
                 self._error(ctx, f"la variable '{name}' ya fue declarada en este ámbito")
-    
+
             # Declared *before* walking the initializer: `let x = x + 1;`
             # resolves the rhs `x` to this new declaration rather than
             # erroring as undeclared. Whether that should instead be a "used
             # before initialized" error is an open question -- flag it to the
             # team if a test case makes it matter.
+            if ctx.initializer():
+                value_type = self._visit_type(ctx.initializer().expression())
+                if not isinstance(value_type, ErrorType):
+                    if isinstance(symbol.type, UnknownType):
+                        symbol.type = value_type  # no annotation -- infer, for good
+                    elif not value_type.is_assignable_to(symbol.type):
+                        self._error(
+                            ctx,
+                            f"la variable '{name}' se declaró como {symbol.type} "
+                            f"pero se inicializa con un valor de tipo {value_type}",
+                        )
+                return None
             return self.visitChildren(ctx)
 
     def visitClassDeclaration(self, ctx: CompiscriptParser.ClassDeclarationContext):
@@ -235,14 +256,25 @@ class SemanticChecker(CompiscriptVisitor):
         if len(exprs) == 1:
             # Plain form: Identifier '=' expression ';'
             name = ctx.Identifier().getText()
-            if self.symbols.resolve(name) is None:
+            symbol = self.symbols.resolve(name)
+            rhs_type = self._visit_type(exprs[0])
+
+            if symbol is None:
                 self._error(ctx, f"la variable '{name}' no ha sido declarada")
-            # TODO(coordinate with Persona 2): once expression type
-            # visiting exists, check the rhs type is assignable to the
-            # resolved symbol's type (Type.is_assignable_to), and narrow
-            # UnknownType here on its first assignment -- shared logic
-            # with visitAssignExpr's TODO, don't duplicate it there.
-            return self.visitChildren(ctx)
+                return None
+            if isinstance(rhs_type, ErrorType):
+                return None
+            if isinstance(symbol.type, UnknownType):
+                # Coordination with Persona 2 resolved: first assignment
+                # narrows an UnknownType symbol, for good -- same
+                # mechanism as visitAssignExpr.
+                symbol.type = rhs_type
+            elif not rhs_type.is_assignable_to(symbol.type):
+                self._error(
+                    ctx,
+                    f"no se puede asignar un valor de tipo {rhs_type} a una variable de tipo {symbol.type}",
+                )
+            return None
  
         # Property form: expression '.' Identifier '=' expression ';'
         # (e.g. `obj.campo = valor;`). Validating that the property
@@ -335,8 +367,9 @@ class SemanticChecker(CompiscriptVisitor):
             return IntegerType()
         if ctx.arrayLiteral() is not None:
             # Persona 3's rule (arreglos) -- passthrough for whatever it
-            # eventually returns.
-            return self.visit(ctx.arrayLiteral())
+            # eventually returns; _visit_type maps its still-unimplemented
+            # None to ErrorType so callers don't have to special-case it.
+            return self._visit_type(ctx.arrayLiteral())
         text = ctx.getText()
         if text == "null":
             return NullType()
@@ -350,10 +383,10 @@ class SemanticChecker(CompiscriptVisitor):
         # child's result, i.e. the closing ')' terminal -- None, not the
         # inner expression's type.
         if ctx.literalExpr() is not None:
-            return self.visit(ctx.literalExpr())
+            return self._visit_type(ctx.literalExpr())
         if ctx.leftHandSide() is not None:
-            return self.visit(ctx.leftHandSide())
-        return self.visit(ctx.expression())
+            return self._visit_type(ctx.leftHandSide())
+        return self._visit_type(ctx.expression())
 
     def visitLeftHandSide(self, ctx: CompiscriptParser.LeftHandSideContext):
         # leftHandSide: primaryAtom (suffixOp)*; -- e.g. `foo`, `foo(1,2)`,
@@ -369,10 +402,10 @@ class SemanticChecker(CompiscriptVisitor):
         # at the top of your method, before visiting any nested subtree
         # (e.g. an index expression) that could itself be a chain and
         # overwrite it before you've read it.
-        current: Type = self.visit(ctx.primaryAtom())
+        current: Type = self._visit_type(ctx.primaryAtom())
         for suffix in ctx.suffixOp():
             self._chain_base = current
-            current = self.visit(suffix)
+            current = self._visit_type(suffix)
         return current
 
     def visitConstantDeclaration(self, ctx: CompiscriptParser.ConstantDeclarationContext):
@@ -385,7 +418,7 @@ class SemanticChecker(CompiscriptVisitor):
         # and with no UnknownType branch: a const's type is settled here,
         # for good, since it can never be reassigned afterward.
         name = ctx.Identifier().getText()
-        value_type = self.visit(ctx.expression())
+        value_type = self._visit_type(ctx.expression())
 
         if ctx.typeAnnotation():
             declared_type = self._resolve_type_node(ctx.typeAnnotation().type_())
@@ -412,10 +445,10 @@ class SemanticChecker(CompiscriptVisitor):
 
     def visitAdditiveExpr(self, ctx: CompiscriptParser.AdditiveExprContext):
         operands = ctx.multiplicativeExpr()
-        result: Type = self.visit(operands[0])
+        result: Type = self._visit_type(operands[0])
         for i in range(1, len(operands)):
             op = self._operator_before(ctx, i)
-            rhs = self.visit(operands[i])
+            rhs = self._visit_type(operands[i])
             result = self._check_additive(ctx, op, result, rhs)
         return result
 
@@ -436,10 +469,10 @@ class SemanticChecker(CompiscriptVisitor):
 
     def visitMultiplicativeExpr(self, ctx: CompiscriptParser.MultiplicativeExprContext):
         operands = ctx.unaryExpr()
-        result: Type = self.visit(operands[0])
+        result: Type = self._visit_type(operands[0])
         for i in range(1, len(operands)):
             op = self._operator_before(ctx, i)
-            rhs = self.visit(operands[i])
+            rhs = self._visit_type(operands[i])
             if isinstance(result, ErrorType) or isinstance(rhs, ErrorType):
                 result = ErrorType()
             elif self._is_numeric(result) and self._is_numeric(rhs):
@@ -452,10 +485,10 @@ class SemanticChecker(CompiscriptVisitor):
     def visitUnaryExpr(self, ctx: CompiscriptParser.UnaryExprContext):
         # unaryExpr: ('-' | '!') unaryExpr | primaryExpr;
         if ctx.primaryExpr() is not None:
-            return self.visit(ctx.primaryExpr())
+            return self._visit_type(ctx.primaryExpr())
 
         op = ctx.getChild(0).getText()
-        operand = self.visit(ctx.unaryExpr())
+        operand = self._visit_type(ctx.unaryExpr())
         if isinstance(operand, ErrorType):
             return ErrorType()
         if op == "!":
@@ -471,7 +504,7 @@ class SemanticChecker(CompiscriptVisitor):
 
     def visitTernaryExpr(self, ctx: CompiscriptParser.TernaryExprContext):
         # conditionalExpr: logicalOrExpr ('?' expression ':' expression)? # TernaryExpr;
-        cond = self.visit(ctx.logicalOrExpr())
+        cond = self._visit_type(ctx.logicalOrExpr())
         branches = ctx.expression()
         if not branches:
             return cond  # no '?' present -- plain passthrough
@@ -479,8 +512,8 @@ class SemanticChecker(CompiscriptVisitor):
         if not isinstance(cond, (ErrorType, BooleanType)):
             self._error(ctx, f"la condición del operador ternario debe ser boolean; se encontró {cond}")
 
-        then_type = self.visit(branches[0])
-        else_type = self.visit(branches[1])
+        then_type = self._visit_type(branches[0])
+        else_type = self._visit_type(branches[1])
         if isinstance(then_type, ErrorType) or isinstance(else_type, ErrorType):
             return ErrorType()
         if then_type.is_assignable_to(else_type):
@@ -507,7 +540,7 @@ class SemanticChecker(CompiscriptVisitor):
         # logicalAndExpr on its way down to a literal, not just genuinely
         # boolean ones, so the single-operand case must pass the real
         # type through unchanged rather than coercing it to boolean.
-        result = self.visit(operands[0])
+        result = self._visit_type(operands[0])
         if len(operands) == 1:
             return result
         ok = True
@@ -517,7 +550,7 @@ class SemanticChecker(CompiscriptVisitor):
             self._error(ctx, f"el operador '{op}' requiere operandos de tipo boolean; se encontró {result}")
             ok = False
         for operand_ctx in operands[1:]:
-            t = self.visit(operand_ctx)
+            t = self._visit_type(operand_ctx)
             if isinstance(t, ErrorType):
                 ok = False
             elif not isinstance(t, BooleanType):
@@ -530,13 +563,13 @@ class SemanticChecker(CompiscriptVisitor):
         # operand (no '=='/'!=' present) this must return the real type,
         # not force BooleanType.
         operands = ctx.relationalExpr()
-        result: Type = self.visit(operands[0])
+        result: Type = self._visit_type(operands[0])
         if len(operands) == 1:
             return result
         ok = not isinstance(result, ErrorType)
         for i in range(1, len(operands)):
             op = self._operator_before(ctx, i)
-            rhs = self.visit(operands[i])
+            rhs = self._visit_type(operands[i])
             if isinstance(rhs, ErrorType):
                 ok = False
             elif not (result.is_assignable_to(rhs) or rhs.is_assignable_to(result)):
@@ -550,13 +583,13 @@ class SemanticChecker(CompiscriptVisitor):
         # operand (no '<'/'<='/'>'/'>=' present) this must return the real
         # type, not force BooleanType.
         operands = ctx.additiveExpr()
-        result: Type = self.visit(operands[0])
+        result: Type = self._visit_type(operands[0])
         if len(operands) == 1:
             return result
         ok = not isinstance(result, ErrorType)
         for i in range(1, len(operands)):
             op = self._operator_before(ctx, i)
-            rhs = self.visit(operands[i])
+            rhs = self._visit_type(operands[i])
             if isinstance(rhs, ErrorType):
                 ok = False
             elif not (self._is_numeric(result) and self._is_numeric(rhs)):
@@ -579,7 +612,7 @@ class SemanticChecker(CompiscriptVisitor):
                 self._error(lhs_ctx, f"la variable '{name}' no ha sido declarada")
                 return None, ErrorType()
             return symbol, symbol.type
-        return None, self.visit(lhs_ctx)
+        return None, self._visit_type(lhs_ctx)
 
     def visitAssignExpr(self, ctx: CompiscriptParser.AssignExprContext):
         # assignmentExpr: lhs=leftHandSide '=' assignmentExpr # AssignExpr;
@@ -590,7 +623,7 @@ class SemanticChecker(CompiscriptVisitor):
         # also parses through here via expressionStatement, since it
         # doesn't match the statement-level `assignment` rule's two
         # simpler alternatives (see visitAssignment's comment, Persona 1).
-        rhs_type = self.visit(ctx.assignmentExpr())
+        rhs_type = self._visit_type(ctx.assignmentExpr())
         symbol, target_type = self._resolve_assignment_target(ctx.lhs)
 
         if isinstance(rhs_type, ErrorType) or isinstance(target_type, ErrorType):
@@ -677,9 +710,9 @@ class SemanticChecker(CompiscriptVisitor):
         callee_type = self._chain_base
 
         arg_exprs = ctx.arguments().expression() if ctx.arguments() else []
-        arg_types = [self.visit(a) for a in arg_exprs]
+        arg_types = [self._visit_type(a) for a in arg_exprs]
 
-        if isinstance(callee_type, ErrorType):
+        if callee_type is None or isinstance(callee_type, ErrorType):
             return ErrorType()
         if not isinstance(callee_type, FunctionType):
             self._error(ctx, f"solo se puede invocar una función; se encontró {callee_type}")
@@ -710,7 +743,7 @@ class SemanticChecker(CompiscriptVisitor):
             return self.visitChildren(ctx)
 
         expected = self._function_return_stack[-1]
-        actual: Type = VoidType() if ctx.expression() is None else self.visit(ctx.expression())
+        actual: Type = VoidType() if ctx.expression() is None else self._visit_type(ctx.expression())
 
         if not isinstance(actual, ErrorType) and not actual.is_assignable_to(expected):
             self._error(ctx, f"el valor de retorno debe ser de tipo {expected}; se encontró {actual}")
