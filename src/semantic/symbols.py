@@ -49,9 +49,57 @@ class ScopeKind(Enum):
 
 @dataclass
 class Scope:
+    """One node in the permanent scope tree.
+
+    `parent` (upward) is what lexical name resolution walks (see
+    `resolve`); `children` (downward, populated by
+    `SymbolTable.enter_scope`) is what makes this an actual tree rather
+    than a linked list of "currently open" scopes. The distinction
+    matters: a function/class/block Scope gets popped off
+    `SymbolTable`'s traversal *stack* the moment the walk leaves it (see
+    `exit_scope`) -- that stack is transient, just "what's open right
+    now". The tree is not: `global_scope` is never popped, so every scope
+    ever created during a full walk stays reachable from it via
+    `children`, forever, independent of the stack's lifetime.
+
+    This tree is the shared artifact both the IDE's symbol-table panel
+    (via `to_dict`) and later compiler phases consume: Project 2 (TAC)
+    and Project 3 (MIPS) reuse this exact structure to compute activation
+    records per function/class scope (see `Symbol.address`, reserved for
+    exactly that and still unused here) -- so it's built as a real object
+    tree, not assembled ad hoc just for JSON output.
+    """
+
     kind: ScopeKind
     parent: Optional["Scope"] = None
     symbols: dict[str, Symbol] = field(default_factory=dict)
+    children: list["Scope"] = field(default_factory=list)
+    # Name of the function/class this scope belongs to (e.g. "foo" for the
+    # FUNCTION scope opened by `function foo(...)`), or None for scopes
+    # with no owning declaration (GLOBAL, a bare BLOCK). Not used by any
+    # rule in this project -- kept for Project 2/3, which will need "which
+    # function does this activation record belong to" to generate code.
+    owner: Optional[str] = None
+
+    def to_dict(self) -> dict:
+        """JSON view of this scope's subtree, for the IDE's symbol-table
+        panel. A view, not the source of truth -- the source of truth is
+        this object tree itself (see class docstring)."""
+        return {
+            "kind": self.kind.name,
+            "owner": self.owner,
+            "symbols": [
+                {
+                    "name": symbol.name,
+                    "kind": symbol.kind.name,
+                    "type": str(symbol.type),
+                    "line": symbol.line,
+                    "column": symbol.column,
+                }
+                for symbol in self.symbols.values()
+            ],
+            "children": [child.to_dict() for child in self.children],
+        }
 
     def declare(self, symbol: Symbol) -> bool:
         """Add a symbol to *this* scope. Returns False if the name is
@@ -105,8 +153,12 @@ class SymbolTable:
     def current(self) -> Scope:
         return self._stack[-1]
 
-    def enter_scope(self, kind: ScopeKind) -> Scope:
-        scope = Scope(kind, parent=self.current)
+    def enter_scope(self, kind: ScopeKind, owner: Optional[str] = None) -> Scope:
+        scope = Scope(kind, parent=self.current, owner=owner)
+        # Link into the permanent tree (parent.children), not just the
+        # traversal stack -- see Scope's docstring for why the two are
+        # different things with different lifetimes.
+        self.current.children.append(scope)
         self._stack.append(scope)
         return scope
 

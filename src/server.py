@@ -178,4 +178,5 @@ def run_file(body: RunBody):
         "errors": result["errors"],
         "statusMessage": result["status_message"],
         "tree": result["tree_json"],
+        "symbolTable": result["symbol_table_json"],
     }

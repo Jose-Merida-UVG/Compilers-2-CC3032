@@ -19,7 +19,7 @@ per the decisions table in docs/plan-proyecto1.md:
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 
@@ -151,6 +151,12 @@ class FunctionType(Type):
 class ClassType(Type):
     class_name: str
     parent: Optional["ClassType"] = None
+    # name -> Symbol, populated by visitClassDeclaration once the class
+    # body has been visited (see checker.py). Not part of identity
+    # (equality/hash stay name-based, see __eq__/__hash__ below) -- two
+    # ClassType references to the same class must compare equal
+    # regardless of whether members have been filled in yet.
+    members: dict = field(default_factory=dict, compare=False)
 
     @property
     def name(self) -> str:  # type: ignore[override]

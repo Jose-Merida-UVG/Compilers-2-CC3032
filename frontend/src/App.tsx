@@ -97,7 +97,7 @@ export default function App() {
  
   const saveTab = useCallback(async (path: string) => {
     const tab = tabs.find((t) => t.path === path);
-    if (!tab || tab.treeData) return; // tree tabs are read-only
+    if (!tab || tab.treeData || tab.symbolTableData) return; // read-only tabs
     try {
       await api.writeFile(path, tab.content);
       setTabs((prev) => prev.map((t) => t.path === path ? { ...t, isDirty: false } : t));
@@ -140,6 +140,18 @@ export default function App() {
           return [...prev, treeTab];
         });
       }
+
+      if (result.symbolTable) {
+        const symbolsTabPath = `${inputPath}::symbols`;
+        setTabs((prev) => {
+          const idx = prev.findIndex((t) => t.path === symbolsTabPath);
+          const symbolsTab: EditorTab = {
+            path: symbolsTabPath, label: `${base} symbols`, content: "", isDirty: false, symbolTableData: result.symbolTable!,
+          };
+          if (idx >= 0) { const n = [...prev]; n[idx] = symbolsTab; return n; }
+          return [...prev, symbolsTab];
+        });
+      }
  
       await refreshTree();
     } catch (e: any) {
@@ -148,7 +160,7 @@ export default function App() {
   }, [tabs, appendTerminal, refreshTree]);
  
   const activeTabData = tabs.find((t) => t.path === activeTab) ?? null;
-  const isCps = (activeTab?.endsWith(".cps") ?? false) && !activeTabData?.treeData;
+  const isCps = (activeTab?.endsWith(".cps") ?? false) && !activeTabData?.treeData && !activeTabData?.symbolTableData;
  
   return (
     <div className="app-shell">

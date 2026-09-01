@@ -54,6 +54,11 @@ class SemanticChecker(CompiscriptVisitor):
         # each is pushed/read/popped.
         self._function_return_stack: list[Type] = []
         self._chain_base: Optional[Type] = None
+        # Persona 3 state (control de flujo / clases) -- see
+        # visitWhileStatement & co. (loop depth) and visitClassDeclaration/
+        # visitThisExpr (current class) below.
+        self._loop_depth: int = 0
+        self._class_stack: list[ClassType] = []
 
     def check(self, tree: Ctx) -> SemanticErrorList:
         self.visit(tree)
@@ -122,13 +127,21 @@ class SemanticChecker(CompiscriptVisitor):
         # runs even if a statement inside raises/errors out mid-visit, so
         # a bad block never leaves the scope stack unbalanced for the rest
         # of the walk (see SymbolTable.exit_scope's docstring).
-        #
-        # Note for Persona 3: "código muerto" (statements after
-        # return/break/continue) is naturally detected right here, by
-        # noticing such a statement isn't the last child visited.
         self.symbols.enter_scope(ScopeKind.BLOCK)
         try:
-            return self.visitChildren(ctx)
+            # Persona 3: "código muerto" -- once a return/break/continue
+            # is visited, every statement after it in this same block can
+            # never execute. Only the first such statement is flagged
+            # (one error per dead region, not one per dead line).
+            terminated = False
+            for stmt in ctx.statement():
+                if terminated:
+                    self._error(stmt, "código muerto: esta instrucción nunca se ejecuta")
+                    break
+                self.visit(stmt)
+                if stmt.returnStatement() or stmt.breakStatement() or stmt.continueStatement():
+                    terminated = True
+            return None
         finally:
             self.symbols.exit_scope()
 
@@ -215,10 +228,23 @@ class SemanticChecker(CompiscriptVisitor):
         # through to visitVariableDeclaration with no scope in between).
         # Persona 3 needs this same CLASS-kind scope for '.' access and
         # `this` (Scope.enclosing(ScopeKind.CLASS)).
-        self.symbols.enter_scope(ScopeKind.CLASS)
+        self.symbols.enter_scope(ScopeKind.CLASS, owner=class_name)
+        self._class_stack.append(class_type)
+        # Persona 3: point the ClassType at the *same* dict object backing
+        # this scope (not a copy) -- '.' access / `new` / inherited-member
+        # lookup (visitPropertyAccessExpr, visitNewExpr) need to resolve
+        # members both from outside (after this method returns) and from
+        # *inside* the class body while it's still being visited (e.g.
+        # `this.nombre` used in `constructor` itself, referring to a
+        # `var nombre` declared earlier in the same body) -- a snapshot
+        # taken only at the end would still be empty for that second
+        # case, since classMember declarations happen during
+        # visitChildren below, not before it.
+        class_type.members = self.symbols.current.symbols
         try:
             return self.visitChildren(ctx)
         finally:
+            self._class_stack.pop()
             self.symbols.exit_scope()
 
     def visitIdentifierExpr(self, ctx: CompiscriptParser.IdentifierExprContext):
@@ -328,7 +354,11 @@ class SemanticChecker(CompiscriptVisitor):
                     column=ctx.start.column,
                 )
             )
-            return self.visit(ctx.block())
+            self._loop_depth += 1
+            try:
+                return self.visit(ctx.block())
+            finally:
+                self._loop_depth -= 1
         finally:
             self.symbols.exit_scope()
 
@@ -675,7 +705,7 @@ class SemanticChecker(CompiscriptVisitor):
         if not self.symbols.declare(symbol):
             self._error(ctx, f"la función '{name}' ya fue declarada en este ámbito (no se soporta sobrecarga)")
 
-        self.symbols.enter_scope(ScopeKind.FUNCTION)
+        self.symbols.enter_scope(ScopeKind.FUNCTION, owner=name)
         self._function_return_stack.append(return_type)
         try:
             for param_name, param_type in zip(param_names, param_types):
@@ -735,11 +765,10 @@ class SemanticChecker(CompiscriptVisitor):
         return callee_type.ret if ok else ErrorType()
 
     def visitReturnStatement(self, ctx: CompiscriptParser.ReturnStatementContext):
-        # "return solo dentro de una función" is Persona 3's rule (control
-        # de flujo) -- this guard just avoids an IndexError until that
-        # exists; it deliberately doesn't add its own error message so the
-        # two checks don't both fire for the same statement.
+        # "return solo dentro de una función" (Persona 3, control de
+        # flujo): outside any function this stack is empty.
         if not self._function_return_stack:
+            self._error(ctx, "'return' solo puede usarse dentro de una función")
             return self.visitChildren(ctx)
 
         expected = self._function_return_stack[-1]
@@ -751,60 +780,226 @@ class SemanticChecker(CompiscriptVisitor):
 
     # ── Persona 3: Control de Flujo + Clases + Arreglos + Generales ─────
 
+    def _resolve_member(self, class_type: ClassType, name: str) -> Optional[Symbol]:
+        """Walk up the inheritance chain (class_type -> parent -> ...)
+        looking for a member declared with this name. Used by both '.'
+        access and `new`'s constructor lookup."""
+        node: Optional[ClassType] = class_type
+        while node is not None:
+            member = node.members.get(name)
+            if member is not None:
+                return member
+            node = node.parent
+        return None
+
     def visitIfStatement(self, ctx: CompiscriptParser.IfStatementContext):
-        # TODO(Persona 3): condition expression must be boolean.
-        return self.visitChildren(ctx)
+        cond_type = self._visit_type(ctx.expression())
+        if not isinstance(cond_type, (BooleanType, ErrorType)):
+            self._error(ctx, f"la condición de 'if' debe ser boolean; se encontró {cond_type}")
+        for block in ctx.block():  # then-block, and else-block if present
+            self.visit(block)
+        return None
 
     def visitWhileStatement(self, ctx: CompiscriptParser.WhileStatementContext):
-        # TODO(Persona 3): condition must be boolean; track "inside a
-        # loop" (e.g. a counter on self, incremented/decremented around
-        # visitChildren) so break/continue can check it.
-        return self.visitChildren(ctx)
+        cond_type = self._visit_type(ctx.expression())
+        if not isinstance(cond_type, (BooleanType, ErrorType)):
+            self._error(ctx, f"la condición de 'while' debe ser boolean; se encontró {cond_type}")
+        self._loop_depth += 1
+        try:
+            self.visit(ctx.block())
+        finally:
+            self._loop_depth -= 1
+        return None
 
     def visitDoWhileStatement(self, ctx: CompiscriptParser.DoWhileStatementContext):
-        # TODO(Persona 3): same as visitWhileStatement.
-        return self.visitChildren(ctx)
+        # 'do' block 'while' '(' expression ')' ';' -- body runs before
+        # the condition is even reachable in the source, so visit it
+        # first; loop-tracking still has to wrap only the body.
+        self._loop_depth += 1
+        try:
+            self.visit(ctx.block())
+        finally:
+            self._loop_depth -= 1
+        cond_type = self._visit_type(ctx.expression())
+        if not isinstance(cond_type, (BooleanType, ErrorType)):
+            self._error(ctx, f"la condición de 'do-while' debe ser boolean; se encontró {cond_type}")
+        return None
 
     def visitForStatement(self, ctx: CompiscriptParser.ForStatementContext):
-        # TODO(Persona 3): condition boolean; same loop-tracking as while.
-        return self.visitChildren(ctx)
+        # 'for' '(' (variableDeclaration | assignment | ';') expression? ';' expression? ')' block
+        # A new BLOCK scope wraps the whole statement so a
+        # `variableDeclaration` init clause (`for (let i = 0; ...)`) is
+        # scoped to the loop, not leaked into whatever contains it.
+        self.symbols.enter_scope(ScopeKind.BLOCK)
+        try:
+            if ctx.variableDeclaration():
+                self.visit(ctx.variableDeclaration())
+            elif ctx.assignment():
+                self.visit(ctx.assignment())
+
+            # Both middle clauses are individually optional, so
+            # ctx.expression() (0-2 items) can't tell condition from
+            # increment by count alone when only one is present -- but it
+            # can by position: whichever expression sits before the
+            # ')' '{' of the increment's own optional ';' is the
+            # condition. Since the grammar always emits them in source
+            # order, the first item is always the condition when both (or
+            # only the condition) are present.
+            conditions = ctx.expression()
+            if conditions:
+                cond_type = self._visit_type(conditions[0])
+                if not isinstance(cond_type, (BooleanType, ErrorType)):
+                    self._error(ctx, f"la condición de 'for' debe ser boolean; se encontró {cond_type}")
+            if len(conditions) == 2:
+                self._visit_type(conditions[1])  # increment: evaluated for side effects only
+
+            self._loop_depth += 1
+            try:
+                self.visit(ctx.block())
+            finally:
+                self._loop_depth -= 1
+            return None
+        finally:
+            self.symbols.exit_scope()
 
     def visitSwitchStatement(self, ctx: CompiscriptParser.SwitchStatementContext):
-        # TODO(Persona 3): switch expression type should be
-        # compatible/comparable with each case's expression type.
-        return self.visitChildren(ctx)
+        switch_type = self._visit_type(ctx.expression())
+        for case_ctx in ctx.switchCase():
+            case_type = self._visit_type(case_ctx.expression())
+            if (
+                not isinstance(switch_type, ErrorType)
+                and not isinstance(case_type, ErrorType)
+                and not case_type.is_assignable_to(switch_type)
+                and not switch_type.is_assignable_to(case_type)
+            ):
+                self._error(
+                    case_ctx,
+                    f"el tipo de 'case' ({case_type}) no es compatible con el de 'switch' ({switch_type})",
+                )
+            for stmt in case_ctx.statement():
+                self.visit(stmt)
+        if ctx.defaultCase():
+            for stmt in ctx.defaultCase().statement():
+                self.visit(stmt)
+        return None
 
     def visitBreakStatement(self, ctx: CompiscriptParser.BreakStatementContext):
-        # TODO(Persona 3): error if not inside a loop.
-        return self.visitChildren(ctx)
+        if self._loop_depth == 0:
+            self._error(ctx, "'break' solo puede usarse dentro de un bucle")
+        return None
 
     def visitContinueStatement(self, ctx: CompiscriptParser.ContinueStatementContext):
-        # TODO(Persona 3): error if not inside a loop.
-        return self.visitChildren(ctx)
+        if self._loop_depth == 0:
+            self._error(ctx, "'continue' solo puede usarse dentro de un bucle")
+        return None
 
     def visitPropertyAccessExpr(self, ctx: CompiscriptParser.PropertyAccessExprContext):
-        # TODO(Persona 3): resolve the attribute/method on the target's
-        # ClassType (walk .parent for inherited members).
-        return self.visitChildren(ctx)
+        # suffixOp: '.' Identifier # PropertyAccessExpr -- target's type
+        # was stashed by visitLeftHandSide right before this was visited;
+        # read it immediately, this method visits nothing else that could
+        # clobber it.
+        target_type = self._chain_base
+        name = ctx.Identifier().getText()
+
+        if target_type is None or isinstance(target_type, ErrorType):
+            return ErrorType()
+        if not isinstance(target_type, ClassType):
+            self._error(ctx, f"solo se puede acceder a miembros ('.') de un objeto; se encontró {target_type}")
+            return ErrorType()
+
+        member = self._resolve_member(target_type, name)
+        if member is None:
+            self._error(ctx, f"la clase '{target_type.class_name}' no tiene un miembro '{name}'")
+            return ErrorType()
+        return member.type
 
     def visitNewExpr(self, ctx: CompiscriptParser.NewExprContext):
-        # TODO(Persona 3): class must exist; constructor arity/types must
-        # match (if the class declares a `constructor` method).
-        return self.visitChildren(ctx)
+        # primaryAtom: 'new' Identifier '(' arguments? ')' # NewExpr
+        class_name = ctx.Identifier().getText()
+        symbol = self.symbols.resolve(class_name)
+        if symbol is None or symbol.kind is not SymbolKind.CLASS:
+            self._error(ctx, f"la clase '{class_name}' no ha sido declarada")
+            return ErrorType()
+
+        class_type = symbol.type
+        assert isinstance(class_type, ClassType)
+
+        arg_exprs = ctx.arguments().expression() if ctx.arguments() else []
+        arg_types = [self._visit_type(a) for a in arg_exprs]
+
+        constructor = self._resolve_member(class_type, "constructor")
+        if constructor is None:
+            # No explicit constructor declared: only a no-argument `new`
+            # makes sense.
+            if arg_types:
+                self._error(ctx, f"la clase '{class_name}' no declara un constructor que reciba argumentos")
+            return class_type
+
+        if not isinstance(constructor.type, FunctionType):
+            self._error(ctx, f"'constructor' en '{class_name}' no es invocable")
+            return class_type
+
+        ctor_type = constructor.type
+        if len(arg_types) != len(ctor_type.params):
+            self._error(
+                ctx,
+                f"el constructor de '{class_name}' espera {len(ctor_type.params)} argumento(s) y se recibieron {len(arg_types)}",
+            )
+            return class_type
+
+        for i, (arg_type, param_type) in enumerate(zip(arg_types, ctor_type.params), start=1):
+            if not isinstance(arg_type, ErrorType) and not arg_type.is_assignable_to(param_type):
+                self._error(ctx, f"el argumento {i} del constructor debe ser de tipo {param_type}; se encontró {arg_type}")
+        return class_type
 
     def visitThisExpr(self, ctx: CompiscriptParser.ThisExprContext):
-        # TODO(Persona 3): error if used outside a CLASS scope
-        # (self.symbols.current.enclosing(ScopeKind.CLASS) is None).
-        return self.visitChildren(ctx)
+        if self.symbols.current.enclosing(ScopeKind.CLASS) is None:
+            self._error(ctx, "'this' solo puede usarse dentro de una clase")
+            return ErrorType()
+        return self._class_stack[-1]
 
     def visitIndexExpr(self, ctx: CompiscriptParser.IndexExprContext):
-        # TODO(Persona 3): target must be ArrayType; index expression must
-        # be integer. (Bounds are a runtime concern, not static -- only
-        # type-check here.)
-        return self.visitChildren(ctx)
+        # suffixOp: '[' expression ']' # IndexExpr -- same _chain_base
+        # convention as visitPropertyAccessExpr; read it before visiting
+        # the index expression (which could itself be a chain).
+        target_type = self._chain_base
+        index_type = self._visit_type(ctx.expression())
+
+        if target_type is None or isinstance(target_type, ErrorType):
+            return ErrorType()
+        if not isinstance(target_type, ArrayType):
+            self._error(ctx, f"solo se puede indexar un arreglo; se encontró {target_type}")
+            return ErrorType()
+        if not isinstance(index_type, (IntegerType, ErrorType)):
+            self._error(ctx, f"el índice de un arreglo debe ser de tipo integer; se encontró {index_type}")
+            return ErrorType()
+        return target_type.element
 
     def visitArrayLiteral(self, ctx: CompiscriptParser.ArrayLiteralContext):
-        # TODO(Persona 3): all elements must share a compatible type;
-        # result is ArrayType(that type). Empty `[]` -> coordinate with
-        # Persona 2 on how UnknownType/inference should handle this.
-        return self.visitChildren(ctx)
+        elem_exprs = ctx.expression()
+        if not elem_exprs:
+            # `[]` with nothing to infer from -- same open slot as an
+            # untyped `let x;` (see UnknownType's docstring); a later
+            # assignment/annotation is expected to narrow it.
+            return ArrayType(UnknownType())
+
+        elem_types = [self._visit_type(e) for e in elem_exprs]
+        result_type: Type = elem_types[0]
+        for t in elem_types[1:]:
+            if isinstance(t, ErrorType) or isinstance(result_type, ErrorType):
+                result_type = ErrorType()
+                continue
+            if t.is_assignable_to(result_type):
+                continue
+            if result_type.is_assignable_to(t):
+                # e.g. [1, 2.5]: integer is assignable to float, so the
+                # element type widens to float (same rule as arithmetic
+                # promotion) instead of erroring.
+                result_type = t
+                continue
+            self._error(
+                ctx,
+                f"los elementos del arreglo deben tener un tipo compatible; se encontró {t} junto a {result_type}",
+            )
+            result_type = ErrorType()
+        return ArrayType(result_type)
