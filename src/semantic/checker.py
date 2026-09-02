@@ -80,11 +80,26 @@ class SemanticChecker(CompiscriptVisitor):
         result: Type = PRIMITIVE_TYPES.get(base_name)
         if result is None:
             # Not a primitive -> grammar's only other baseType alternative
-            # is a bare Identifier, i.e. a class name.
-            # TODO: validate the class was actually declared once class
-            # registration exists (visitClassDeclaration) -- for now this
-            # trusts the name and builds a ClassType regardless.
-            result = ClassType(base_name)
+            # is a bare Identifier, i.e. a class name. Resolve to the
+            # *actual* class's ClassType (with its real, populated
+            # `members` dict -- see visitClassDeclaration) when it's
+            # already declared at this point in the walk: a variable typed
+            # by explicit annotation (`let a: Animal`) must support
+            # '.'-access exactly like one typed by inference (`let a = new
+            # Animal()`, which already got the real ClassType straight
+            # from visitNewExpr) -- a fresh ClassType(base_name) here has
+            # an *empty* members dict, so property access/assignment would
+            # wrongly report "no tiene un miembro" for members that really
+            # exist. Found by testing `let a: Animal = new Animal(); a.x = 1;`.
+            #
+            # Falls back to a fresh, member-less ClassType (no error) for a
+            # name that isn't declared yet -- e.g. a forward reference --
+            # rather than blocking on declaration order.
+            class_symbol = self.symbols.resolve(base_name)
+            if class_symbol is not None and class_symbol.kind is SymbolKind.CLASS:
+                result = class_symbol.type
+            else:
+                result = ClassType(base_name)
         # `('[' ']')*` -- each '[' ']' pair adds one array dimension.
         array_dims = (type_ctx.getChildCount() - 1) // 2
         for _ in range(array_dims):
@@ -303,13 +318,32 @@ class SemanticChecker(CompiscriptVisitor):
             return None
  
         # Property form: expression '.' Identifier '=' expression ';'
-        # (e.g. `obj.campo = valor;`). Validating that the property
-        # actually exists on the target's ClassType is Persona 3's '.'
-        # access work (visitPropertyAccessExpr) -- this just walks both
-        # expression subtrees so nested identifiers etc. still get
-        # visited. Whoever implements the property check first should tag
-        # the other.
-        return self.visitChildren(ctx)
+        # (e.g. `obj.campo = valor;`, including `this.campo = valor;` inside
+        # a constructor -- the most common real use of this branch).
+        # Coordination resolved now that Persona 3's _resolve_member (see
+        # visitPropertyAccessExpr) exists: same existence + type check as
+        # reading a property, applied to the write side.
+        target_expr, value_expr = exprs
+        target_type = self._visit_type(target_expr)
+        prop_name = ctx.Identifier().getText()
+        value_type = self._visit_type(value_expr)
+
+        if isinstance(target_type, ErrorType) or isinstance(value_type, ErrorType):
+            return None
+        if not isinstance(target_type, ClassType):
+            self._error(ctx, f"solo se puede acceder a miembros ('.') de un objeto; se encontró {target_type}")
+            return None
+
+        member = self._resolve_member(target_type, prop_name)
+        if member is None:
+            self._error(ctx, f"la clase '{target_type.class_name}' no tiene un miembro '{prop_name}'")
+            return None
+        if not value_type.is_assignable_to(member.type):
+            self._error(
+                ctx,
+                f"no se puede asignar un valor de tipo {value_type} a '{prop_name}' de tipo {member.type}",
+            )
+        return None
 
     def visitForeachStatement(self, ctx: CompiscriptParser.ForeachStatementContext):
         # 'foreach' '(' Identifier 'in' expression ')' block
@@ -667,6 +701,33 @@ class SemanticChecker(CompiscriptVisitor):
             self._error(ctx, f"no se puede asignar un valor de tipo {rhs_type} a una variable de tipo {target_type}")
             return ErrorType()
         return target_type
+
+    def visitPropertyAssignExpr(self, ctx: CompiscriptParser.PropertyAssignExprContext):
+        # assignmentExpr: lhs=leftHandSide '.' Identifier '=' assignmentExpr # PropertyAssignExpr;
+        # Expression-form counterpart to visitAssignment's property branch
+        # (e.g. `print(obj.campo = valor)`) -- same existence + type check,
+        # reusing Persona 3's _resolve_member (see visitPropertyAccessExpr).
+        target_type = self._visit_type(ctx.lhs)
+        prop_name = ctx.Identifier().getText()
+        value_type = self._visit_type(ctx.assignmentExpr())
+
+        if isinstance(target_type, ErrorType) or isinstance(value_type, ErrorType):
+            return ErrorType()
+        if not isinstance(target_type, ClassType):
+            self._error(ctx, f"solo se puede acceder a miembros ('.') de un objeto; se encontró {target_type}")
+            return ErrorType()
+
+        member = self._resolve_member(target_type, prop_name)
+        if member is None:
+            self._error(ctx, f"la clase '{target_type.class_name}' no tiene un miembro '{prop_name}'")
+            return ErrorType()
+        if not value_type.is_assignable_to(member.type):
+            self._error(
+                ctx,
+                f"no se puede asignar un valor de tipo {value_type} a '{prop_name}' de tipo {member.type}",
+            )
+            return ErrorType()
+        return member.type
 
     def visitFunctionDeclaration(self, ctx: CompiscriptParser.FunctionDeclarationContext):
         # functionDeclaration: 'function' Identifier '(' parameters? ')' (':' type)? block;
