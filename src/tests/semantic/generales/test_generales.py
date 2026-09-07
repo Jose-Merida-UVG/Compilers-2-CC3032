@@ -1,9 +1,10 @@
-"""Batería 'Generales' (expresiones sin sentido semántico) -- compartida
-Persona 2/3 según docs/plan-proyecto1.md. Estos dos primeros casos caen
-del lado del sistema de tipos (Persona 2): el chequeo numérico ya existente
-en additiveExpr/multiplicativeExpr rechaza operandos que no tengan sentido
-ahí (una función, un boolean donde se espera integer/float), sin necesitar
-una regla nueva. Ver ../README.md para la convención de nombres.
+"""Batería 'Generales': código muerto, declaraciones duplicadas y
+expresiones sin sentido semántico.
+
+Estas últimas no necesitan una regla propia: el chequeo numérico de
+additiveExpr/multiplicativeExpr ya rechaza operandos que no tengan sentido
+ahí (una función, un boolean donde se espera integer/float). Ver
+../README.md para la convención de nombres.
 """
 import glob
 import os

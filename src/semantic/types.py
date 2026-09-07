@@ -2,11 +2,10 @@
 
 Every `visit*` method in `checker.py` that evaluates an expression returns
 one of these. Kept independent of the ANTLR-generated parser classes on
-purpose, so it stays reusable in the TAC/MIPS phases later (see
-docs/plan-proyecto1.md).
+purpose, so it stays reusable in the TAC/MIPS phases later
 
 Assignability rules (who can flow into whom) live in `is_assignable_to`,
-per the decisions table in docs/plan-proyecto1.md:
+per the decisions table in docs/Arquitectura.md:
   - integer -> float promotion allowed, never the reverse.
   - null is assignable to any array/class type (and to null itself), never
     to a primitive.
@@ -17,6 +16,7 @@ per the decisions table in docs/plan-proyecto1.md:
     type the first time it sees an assignment, and for erroring if it's
     used before that happens.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -28,12 +28,14 @@ class Type:
 
     name: str = "type"
 
+    # Same Type -> Equal
     def __eq__(self, other: object) -> bool:
         return isinstance(other, Type) and type(self) is type(other)
 
     def __hash__(self) -> int:
         return hash(type(self))
 
+    # Readable presentation for type
     def __repr__(self) -> str:
         return self.name
 
@@ -41,13 +43,13 @@ class Type:
         """Can a value of this type be assigned/passed where `target` is
         expected? Default: exact type match. Subclasses override this for
         numeric promotion, null, class inheritance, etc."""
+
+        # Everything is assignable to error / error is assignable to
+        # everything
         if isinstance(self, ErrorType) or isinstance(target, ErrorType):
             return True
+        # Everything is assignable to Unknown
         if isinstance(target, UnknownType):
-            # An untyped `let x;`/untyped parameter accepts anything until
-            # something narrows it (see UnknownType's own docstring) --
-            # needed e.g. for calling a function whose parameter has no
-            # `: type` annotation.
             return True
         return self == target
 
@@ -67,8 +69,8 @@ class VoidType(Type):
 
 
 class UnknownType(Type):
-    """`let x;` -- no annotation, no initializer. Resolved to a concrete
-    type on first assignment (see decisions table)."""
+    """`let x;`with no annotation, no initializer. Resolved to a concrete
+    type on first assignment."""
 
     name = "unknown"
 
@@ -77,6 +79,9 @@ class UnknownType(Type):
 
 
 class NullType(Type):
+    """Null literal, only assignable to Arrays & classes. Design decision
+    made by team."""
+
     name = "null"
 
     def is_assignable_to(self, target: "Type") -> bool:
@@ -92,6 +97,7 @@ class BooleanType(Type):
 class IntegerType(Type):
     name = "integer"
 
+    # Assignable to Integer + Float for 'promotion'
     def is_assignable_to(self, target: "Type") -> bool:
         if isinstance(target, (IntegerType, FloatType)):
             return True
@@ -106,8 +112,22 @@ class StringType(Type):
     name = "string"
 
 
+# Invariant for real types: integer[] doesn't fit a float[] (if it did, the
+# same array would sit under both names and a float could be written into
+# it). Unknown/Error do pass, at any depth
+def _element_fits(a: "Type", b: "Type") -> bool:
+    if isinstance(a, (UnknownType, ErrorType)) or isinstance(
+        b, (UnknownType, ErrorType)
+    ):
+        return True
+    if isinstance(a, ArrayType) and isinstance(b, ArrayType):
+        return _element_fits(a.element, b.element)
+    return a == b
+
+
 @dataclass(eq=False, repr=False)
 class ArrayType(Type):
+    # What the array holds
     element: Type
 
     @property
@@ -122,13 +142,15 @@ class ArrayType(Type):
 
     def is_assignable_to(self, target: "Type") -> bool:
         if isinstance(target, ArrayType):
-            return self.element == target.element
+            return _element_fits(self.element, target.element)
         return super().is_assignable_to(target)
 
 
 @dataclass(eq=False, repr=False)
 class FunctionType(Type):
+    # Function params
     params: list[Type]
+    # Return type
     ret: Type
 
     @property

@@ -1,7 +1,7 @@
 """Fase 0 smoke tests.
 
 These aren't semantic-rule tests (those live under src/tests/semantic/
-<categoria>/, one battery per rule, owned per docs/plan-proyecto1.md) --
+<categoria>/, one battery per rule, owned per docs/Arquitectura.md) --
 this file just guards the Fase 0 wiring itself:
   1. Every pre-existing sample under workspace/input/ still analyzes
      exactly as before now that SemanticChecker is wired into

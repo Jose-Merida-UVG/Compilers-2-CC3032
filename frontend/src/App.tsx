@@ -64,6 +64,9 @@ export default function App() {
       if (node.path.endsWith(".tree")) {
         const treeData = JSON.parse(content);
         setTabs((prev) => [...prev, { path: node.path, label: node.name, content: "", isDirty: false, treeData }]);
+      } else if (node.path.endsWith(".symbols")) {
+        const symbolTableData = JSON.parse(content);
+        setTabs((prev) => [...prev, { path: node.path, label: node.name, content: "", isDirty: false, symbolTableData }]);
       } else {
         setTabs((prev) => [...prev, { path: node.path, label: node.name, content, isDirty: false }]);
       }
@@ -127,7 +130,8 @@ export default function App() {
       result.lines.forEach((l) => appendTerminal(l));
       const fileName = inputPath.split("/").pop() ?? "";
       const base = fileName.replace(/\.cps$/, "");
-      appendTerminal(`── salida guardada en output/${base}/${fileName}.out (y .tree) ──`);
+      const saved = result.symbolTable ? ".out, .tree y .symbols" : ".out y .tree";
+      appendTerminal(`── salida guardada en output/${base}/ (${saved}) ──`);
 
       if (result.tree) {
         const treeTabPath = `${inputPath}::tree`;

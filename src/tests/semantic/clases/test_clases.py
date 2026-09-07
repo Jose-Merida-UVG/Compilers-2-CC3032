@@ -1,4 +1,4 @@
-"""Batería 'Clases' (Persona 3): atributos/métodos válidos vía '.'
+"""Batería 'Clases': atributos/métodos válidos vía '.'
 (incluyendo herencia), constructor, `this`. Ver ../README.md para la
 convención de nombres.
 """

@@ -1,6 +1,6 @@
 """Semantic analysis for Compiscript: type system, symbol table, and the
 tree-walking checker that applies the semantic rules from
-docs/plan-proyecto1.md.
+docs/Arquitectura.md.
 
 Layout:
   types.py    - the Type hierarchy (Integer, Float, Array, Function, ...)

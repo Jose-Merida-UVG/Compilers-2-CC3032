@@ -1,4 +1,4 @@
-"""Batería de 'Sistema de Tipos' (Persona 2): aritmética, lógicas,
+"""Batería de 'Sistema de Tipos': aritmética, lógicas,
 comparaciones, asignaciones, const con tipo declarado. Ver
 ../README.md para la convención de nombres.
 """

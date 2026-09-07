@@ -1,9 +1,10 @@
 """HTTP backend for the Compiscript IDE frontend.
 
 Serves a small file-CRUD API over a `workspace/` directory (repo root) plus a
-`/api/run` endpoint that lexes + parses a `.cps` file with the ANTLR-generated
-Compiscript lexer/parser (see compiler.py) and returns errors, the printable
-parse tree, and a JSON tree for the frontend's viewer.
+`/api/run` endpoint that lexes, parses and semantically analyses a `.cps`
+file (see compiler.py) and returns errors, the parse tree and the symbol
+table for the frontend's viewers. Each run also persists `.out`, `.tree` and
+`.symbols` under `workspace/output/<stem>/`.
 
 Runs with:
     PYTHONPATH=generated:src uvicorn server:app --app-dir src --reload --port 8080
@@ -172,6 +173,17 @@ def run_file(body: RunBody):
     (run_dir / f"{p.name}.tree").write_text(
         json.dumps(result["tree_json"], ensure_ascii=False, indent=2), encoding="utf-8"
     )
+    # Symbol table only exists when semantic analysis actually ran (no
+    # lexical/syntax errors -- see compiler.analyze). A stale .symbols from a
+    # previous clean run would be misleading, so it's removed in that case.
+    symbols_path = run_dir / f"{p.name}.symbols"
+    if result["symbol_table_json"] is not None:
+        symbols_path.write_text(
+            json.dumps(result["symbol_table_json"], ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+    elif symbols_path.exists():
+        symbols_path.unlink()
 
     return {
         "lines": lines,

@@ -1,4 +1,4 @@
-"""Batería 'Arreglos' (Persona 3): tipo de elementos, validación de
+"""Batería 'Arreglos': tipo de elementos, validación de
 índices. Ver ../README.md para la convención de nombres.
 """
 import glob

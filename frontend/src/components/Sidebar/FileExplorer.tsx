@@ -165,6 +165,7 @@ function fileIcon(node: FileNode): string {
   if (node.name.endsWith(".cps"))  return "⚙";
   if (node.name.endsWith(".out"))  return "📋";
   if (node.name.endsWith(".tree")) return "🌳";
+  if (node.name.endsWith(".symbols")) return "🔣";
   if (node.name.endsWith(".json")) return "{}";
   return "📄";
 }

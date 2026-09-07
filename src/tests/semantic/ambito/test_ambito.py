@@ -1,4 +1,4 @@
-"""Batería de 'Ámbito' (Persona 1): resolución de nombres, no
+"""Batería de 'Ámbito': resolución de nombres, no
 declaradas, redeclaración, bloques anidados. Ver ../README.md para la
 convención de nombres.
 """

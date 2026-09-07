@@ -1,4 +1,4 @@
-"""Batería de 'Funciones' (Persona 2): argumentos, tipo de retorno,
+"""Batería de 'Funciones': argumentos, tipo de retorno,
 recursión, closures, redeclaración de función. Ver ../README.md para la
 convención de nombres.
 """

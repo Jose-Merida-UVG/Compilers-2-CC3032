@@ -17,7 +17,8 @@ class Animal {
 
 class Perro: Animal {
   function ladrar(): string {
-    return "guau";
+    let toReturn = "guau";
+    return toReturn;
   }
 }
 
@@ -51,6 +52,9 @@ switch (suma) {
   default:
     print("suma distinta");
 }
+let a;
+let b = 2;
+a = b + 1;
 
 function sumarPares(valores: integer[]): integer {
   let total: integer = 0;

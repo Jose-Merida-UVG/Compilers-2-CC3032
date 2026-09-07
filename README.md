@@ -8,8 +8,9 @@ type` annotations, functions, classes, control flow, etc. — see
 `src/grammar/Compiscript.g4` for the exact grammar). Everything
 compiler-related (grammar, generated parser, CLI, server) lives under
 `src/`; `frontend/` is a browser IDE UI for editing and running `.cps`
-files. Currently covers lexical and syntax analysis only (no semantic
-analysis yet).
+files. Covers lexical, syntax and semantic analysis; see
+[docs/Arquitectura.md](docs/Arquitectura.md) for the semantic analyzer and
+symbol table.
 
 ## Project structure
 
@@ -22,7 +23,10 @@ analysis yet).
 - `src/tools/` — vendored ANTLR jar used only for code generation.
 - `frontend/` — browser IDE (Vite + React/TS) for editing and running `.cps` files against the backend.
 - `workspace/` — the IDE's working directory: `input/` has sample `.cps` programs, `output/` has persisted run results (`.out`/`.tree`).
-- `docs/` — language reference (`DefinicionCompiscript.md`).
+- `src/semantic/` — semantic analyzer: type system, symbol table, and the
+  tree-walking checker (see `docs/Arquitectura.md`).
+- `docs/` — language reference (`DefinicionCompiscript.md`) and architecture
+  (`Arquitectura.md`).
 
 ## Requirements
 

@@ -1,4 +1,4 @@
-"""Batería 'Control de Flujo' (Persona 3): condiciones boolean en
+"""Batería 'Control de Flujo': condiciones boolean en
 if/while/do-while/for/switch, break/continue solo en bucles, return solo
 dentro de una función. Ver ../README.md para la convención de nombres.
 """
