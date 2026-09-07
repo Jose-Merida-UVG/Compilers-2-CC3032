@@ -1,12 +1,11 @@
 # Arquitectura del análisis semántico — Compiscript
 
-Documento consolidado de `src/semantic/`. Reemplaza a los tres documentos
-por módulo (`ModuloAmbito.md`, `ModuloTiposFunciones.md`,
-`ModuloControlFlujo.md`), que quedan en el historial de git.
+Documento consolidado de `src/semantic/`. Para el detalle método por
+método de control de flujo, clases y arreglos ver
+[ModuloControlFlujo.md](./ModuloControlFlujo.md).
 
 La división de tareas y el estado del proyecto se llevan en el plan de
-trabajo del equipo (`PlanCompis.md`, fuera del repositorio). Ver
-[CambiosSesion.md](./CambiosSesion.md) para los cambios más recientes.
+trabajo del equipo (`PlanCompis.md`, fuera del repositorio).
 
 ---
 

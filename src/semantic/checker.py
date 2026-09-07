@@ -936,26 +936,36 @@ class SemanticChecker(CompiscriptVisitor):
             elif ctx.assignment():
                 self.visit(ctx.assignment())
 
-            # Both middle clauses are individually optional, so
-            # ctx.expression() (0-2 items) can't tell condition from
-            # increment by count alone when only one is present -- but it
-            # can by position: whichever expression sits before the
-            # ')' '{' of the increment's own optional ';' is the
-            # condition. Since the grammar always emits them in source
-            # order, the first item is always the condition when both (or
-            # only the condition) are present.
-            conditions = ctx.expression()
-            if conditions:
-                cond_type = self._visit_type(conditions[0])
+            # `expression? ';' expression?` -- both clauses are optional
+            # *independently*, so a count of 1 is ambiguous: it could be
+            # the condition or the increment. Position settles it. The
+            # separator is the last ';' among this node's own children
+            # (the init clause's ';' is either inside its
+            # variableDeclaration/assignment or is an earlier child):
+            # before it is the condition, after it the increment.
+            sep = max(
+                i
+                for i in range(ctx.getChildCount())
+                if ctx.getChild(i).getText() == ";"
+            )
+            condition = None
+            increment = None
+            for i in range(ctx.getChildCount()):
+                if ctx.getChild(i) in ctx.expression():
+                    if i < sep:
+                        condition = ctx.getChild(i)
+                    else:
+                        increment = ctx.getChild(i)
+
+            if condition is not None:
+                cond_type = self._visit_type(condition)
                 if not isinstance(cond_type, (BooleanType, ErrorType)):
                     self._error(
                         ctx,
                         f"la condición de 'for' debe ser boolean; se encontró {cond_type}",
                     )
-            if len(conditions) == 2:
-                self._visit_type(
-                    conditions[1]
-                )  # increment: evaluated for side effects only
+            if increment is not None:
+                self._visit_type(increment)  # solo por sus efectos
 
             self._loop_depth += 1
             try:
