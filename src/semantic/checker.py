@@ -167,9 +167,7 @@ class SemanticChecker(CompiscriptVisitor):
 
         # Declared *before* walking the initializer: `let x = x + 1;`
         # resolves the rhs `x` to this new declaration rather than
-        # erroring as undeclared. Whether that should instead be a "used
-        # before initialized" error is an open question -- flag it to the
-        # team if a test case makes it matter.
+        # erroring as undeclared.
         if ctx.initializer():
             value_type = self._visit_type(ctx.initializer().expression())
             if not isinstance(value_type, ErrorType):
@@ -215,13 +213,7 @@ class SemanticChecker(CompiscriptVisitor):
 
         # New scope for the class body: this is what makes members declare
         # into their own namespace instead of leaking into whatever scope
-        # contains the class declaration -- that leak was exactly the
-        # false "ya fue declarada" collision seen before this method
-        # existed (a top-level `let nombre` colliding with a class's own
-        # `var nombre` member, since classMember visits fell straight
-        # through to visitVariableDeclaration with no scope in between).
-        # This same CLASS-kind scope is what '.' access and `this` rely
-        # on (Scope.enclosing(ScopeKind.CLASS)).
+        # contains the class declaration.
         self.symbols.enter_scope(ScopeKind.CLASS, owner=class_name)
         self._class_stack.append(class_type)
         # Point the ClassType at the *same* dict object backing
@@ -351,10 +343,7 @@ class SemanticChecker(CompiscriptVisitor):
             self.symbols.exit_scope()
 
     def visitTryCatchStatement(self, ctx: CompiscriptParser.TryCatchStatementContext):
-        # OUT OF SCOPE (team decision): this wasn't in
-        # the division of work, and the team decided not to
-        # add semantic checking for try/catch for this project. Left as a
-        # plain passthrough on purpose -- not a forgotten TODO.
+        # OUT OF SCOPE (team decision)
         return self.visitChildren(ctx)
 
     # ── Sistema de tipos y funciones ────────────────────────────────────
@@ -775,9 +764,9 @@ class SemanticChecker(CompiscriptVisitor):
             self._function_return_stack.pop()
             self.symbols.exit_scope()
 
-        if not isinstance(return_type, (VoidType, ErrorType)) and not self._always_returns(
-            ctx.block()
-        ):
+        if not isinstance(
+            return_type, (VoidType, ErrorType)
+        ) and not self._always_returns(ctx.block()):
             self._error(
                 ctx,
                 f"la función '{name}' declara retorno {return_type} pero no todos "
@@ -1032,7 +1021,9 @@ class SemanticChecker(CompiscriptVisitor):
             return ErrorType()
         return member.type
 
-    def _check_property_assignment(self, ctx: Ctx, target_ctx, name: str, value_ctx) -> Type:
+    def _check_property_assignment(
+        self, ctx: Ctx, target_ctx, name: str, value_ctx
+    ) -> Type:
         """Write side of '.': the member must exist on the target class and
         the value must fit its type. Shared by the statement form
         (visitAssignment) and the expression form (visitPropertyAssignExpr)."""
@@ -1042,18 +1033,26 @@ class SemanticChecker(CompiscriptVisitor):
         if isinstance(target_type, ErrorType) or isinstance(value_type, ErrorType):
             return ErrorType()
         if not isinstance(target_type, ClassType):
-            self._error(ctx, f"solo se puede asignar a miembros ('.') de un objeto; se encontró {target_type}")
+            self._error(
+                ctx,
+                f"solo se puede asignar a miembros ('.') de un objeto; se encontró {target_type}",
+            )
             return ErrorType()
 
         member = self._resolve_member(target_type, name)
         if member is None:
-            self._error(ctx, f"la clase '{target_type.class_name}' no tiene un miembro '{name}'")
+            self._error(
+                ctx, f"la clase '{target_type.class_name}' no tiene un miembro '{name}'"
+            )
             return ErrorType()
         if member.kind is SymbolKind.CONSTANT:
             self._error(ctx, f"no se puede asignar a '{name}': es una constante")
             return ErrorType()
         if not value_type.is_assignable_to(member.type):
-            self._error(ctx, f"no se puede asignar un valor de tipo {value_type} a '{name}', de tipo {member.type}")
+            self._error(
+                ctx,
+                f"no se puede asignar un valor de tipo {value_type} a '{name}', de tipo {member.type}",
+            )
             return ErrorType()
         return member.type
 
