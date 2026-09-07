@@ -144,7 +144,7 @@ let patas: integer = perro.PATAS;          // constante heredada
 let ladrido: string = perro.ladrar();      // método propio
 let desc: string = perro.describir();      // método heredado
 
-perro.raza = "labrador";                   // escritura de atributo propio
+perro.teeee = "labrador";                   // escritura de atributo propio
 print(perro.raza = "collie");              // asignación de propiedad anidada
                                            // en una expresión (via visitAssignExpr)
 perro.edad = perro.edad + 1;               // lectura + escritura heredada
