@@ -966,24 +966,33 @@ class SemanticChecker(CompiscriptVisitor):
             self.symbols.exit_scope()
 
     def visitSwitchStatement(self, ctx: CompiscriptParser.SwitchStatementContext):
+        # switchCase/defaultCase are bare statement lists, not `block`, so
+        # no scope opens automatically like it does for if/while/for. One
+        # BLOCK scope wraps the whole switch: all cases share one scope,
+        # so same-name declarations across cases still collide, but
+        # nothing leaks past the closing '}'.
         switch_type = self._visit_type(ctx.expression())
-        for case_ctx in ctx.switchCase():
-            case_type = self._visit_type(case_ctx.expression())
-            if (
-                not isinstance(switch_type, ErrorType)
-                and not isinstance(case_type, ErrorType)
-                and not case_type.is_assignable_to(switch_type)
-                and not switch_type.is_assignable_to(case_type)
-            ):
-                self._error(
-                    case_ctx,
-                    f"el tipo de 'case' ({case_type}) no es compatible con el de 'switch' ({switch_type})",
-                )
-            for stmt in case_ctx.statement():
-                self.visit(stmt)
-        if ctx.defaultCase():
-            for stmt in ctx.defaultCase().statement():
-                self.visit(stmt)
+        self.symbols.enter_scope(ScopeKind.BLOCK)
+        try:
+            for case_ctx in ctx.switchCase():
+                case_type = self._visit_type(case_ctx.expression())
+                if (
+                    not isinstance(switch_type, ErrorType)
+                    and not isinstance(case_type, ErrorType)
+                    and not case_type.is_assignable_to(switch_type)
+                    and not switch_type.is_assignable_to(case_type)
+                ):
+                    self._error(
+                        case_ctx,
+                        f"el tipo de 'case' ({case_type}) no es compatible con el de 'switch' ({switch_type})",
+                    )
+                for stmt in case_ctx.statement():
+                    self.visit(stmt)
+            if ctx.defaultCase():
+                for stmt in ctx.defaultCase().statement():
+                    self.visit(stmt)
+        finally:
+            self.symbols.exit_scope()
         return None
 
     def visitBreakStatement(self, ctx: CompiscriptParser.BreakStatementContext):
