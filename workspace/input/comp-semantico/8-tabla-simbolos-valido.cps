@@ -1,45 +1,54 @@
-// Caso integral: funcionamiento de la tabla de símbolos
-// Cubre: insertar, recuperar, actualizar y manejo de alcances.
+// Caso integral: funcionamiento de la tabla de símbolos.
+// No hay ejecución en esta fase (sin intérprete/codegen todavía), así
+// que lo que demuestra cada punto es el ÁRBOL DE ÁMBITOS que produce el
+// análisis semántico (panel "Tabla de símbolos" del IDE), no la salida
+// de ningún print. Cada sección deja símbolos distintos en ese árbol
+// para poder señalarlos ahí.
 
-// --- 1. Insertar (declare en el ámbito global) ---
-let contador: integer = 0;
+// --- 1. Insertar ---
+let contador;                     // integer, tras narrowing en la línea 11
 let nombre: string = "Ana";
 const limite: integer = 10;
+class Cuenta {
+  var saldo: integer;
+  const MONEDA: string = "GTQ";
+  function constructor(inicial: integer) { this.saldo = inicial; }
+}
+function calcular(base: integer, factor: float): float { return base * factor; }
 
-// --- 2. Recuperar información (resolve: leer un símbolo ya insertado) ---
-print(contador);
-print(nombre);
-print(limite);
-let copia: integer = contador; // recupera el tipo/valor de "contador" para tipar "copia"
+// --- 2. Recuperar ---
+// El checker resuelve cada nombre contra la tabla ya construida y usa
+// el tipo que recupera para tipar lo que lo usa.
+let copia: integer = contador;               // recupera 'contador' -> integer
+let usoFuncion: float = calcular(2, 1.5);    // recupera la firma de 'calcular'
+let cuenta: Cuenta = new Cuenta(100);        // recupera la clase 'Cuenta' y su constructor
+let usoMiembro: integer = cuenta.saldo;      // recupera un miembro de 'Cuenta'
 
-// --- 3. Actualizar información (reasignar; el símbolo mantiene su entrada, cambia su valor) ---
+// --- 3. Actualizar ---
+// La asignación ocurre en un bloque anidado, pero no hay 'let' ahí: no
+// se inserta un símbolo nuevo, se reasigna el mismo 'contador' global
+// (resolve() sube hasta encontrarlo). Con eso, su entrada en la tabla
+// pasa de "unknown" a "integer" -- la misma entrada, tipo actualizado.
+{
+  contador = 0;
+}
 contador = contador + 1;
 nombre = nombre + " Pérez";
-print(contador);
-print(nombre);
 
-// --- 4. Manejo de alcances (enter_scope / exit_scope, shadowing y resolución por ámbito) ---
+// --- 4. Manejo de alcances ---
+// Cada '{ }', función y clase abre su propio ámbito en el árbol.
 {
-  // nuevo ámbito de bloque: "contador" sombrea al global, "local" solo existe aquí
+  // ámbito de bloque: sombrea 'contador' del global; 'local' solo existe aquí
   let contador: integer = 100;
-  let local: integer = contador + limite; // resuelve "contador" local y "limite" global (padre)
-  print(contador);
-  print(local);
+  let local: integer = contador + limite;
 }
-print(contador); // al salir del bloque, vuelve a resolverse el "contador" global (ya actualizado a 1)
+// aquí 'contador' vuelve a resolver al del ámbito global
 
 function actualizarEnAmbito(x: integer): integer {
-  // ámbito de función: "x" (parámetro) se inserta aquí y se recupera/actualiza dentro
-  x = x * 2;          // actualizar dentro del ámbito de función
-  let y: integer = x;  // insertar y recuperar dentro del mismo ámbito
-  let z: integer = y + limite; // recupera "y" del ámbito de función y "limite" del global
+  // ámbito de función: 'x' es un símbolo propio de este ámbito
+  let y: integer = x * 2;
   {
-    let y: integer = z; // ámbito anidado: sombrea "y" de la función (no lo modifica)
-    print(y);
+    let y: integer = y * 2; // ámbito anidado: sombrea la 'y' de la función (no la lee)
   }
-  print(y); // fuera del bloque interno, "y" vuelve a ser el de la función (sin modificar)
   return x;
 }
-
-print(actualizarEnAmbito(5));
-print(contador); // confirma que el ámbito de la función no afectó al "contador" global
