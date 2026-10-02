@@ -1,0 +1,15 @@
+{
+  "venvPath": ".",
+  "venv": ".venv",
+  "include": ["src"],
+  "exclude": [
+    "**/__pycache__",
+    ".venv",
+    "frontend"
+  ],
+  "extraPaths": ["src", "src/generated"],
+  "typeCheckingMode": "basic",
+  "reportMissingImports": "warning",
+  "reportMissingTypeStubs": "none",
+  "useLibraryCodeForTypes": true
+}

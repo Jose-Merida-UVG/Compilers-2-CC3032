@@ -10,6 +10,7 @@ from antlr4.tree.Tree import TerminalNode
 from CompiscriptLexer import CompiscriptLexer
 from CompiscriptParser import CompiscriptParser
 from error_listener import CompiscriptErrorListener
+from semantic.checker import SemanticChecker
 
 SUCCESS_MESSAGE = (
     "El archivo fue analizado correctamente. "
@@ -38,6 +39,9 @@ def analyze(input_stream: InputStream) -> dict:
       - status_message: str    Spanish message: success text if no errors,
                                 otherwise a summary of how many were found
       - tree_json: dict        parse tree as a nested dict, for visualization
+      - symbol_table_json: dict | None  scope tree (see semantic/symbols.py's
+                                Scope.to_dict), or None if semantic analysis
+                                didn't run (lexical/syntax errors present)
     """
     lexer = CompiscriptLexer(input_stream)
  
@@ -51,8 +55,26 @@ def analyze(input_stream: InputStream) -> dict:
     parser.addErrorListener(error_listener)
  
     tree = parser.program()
- 
+
     errors = list(error_listener.errors)
+
+    # Semantic analysis only runs on a clean tree: if ANTLR had to
+    # error-recover through lexical/syntax errors, walking the result would
+    # likely produce noisy, misleading semantic errors on top of the real
+    # ones (see semantic/checker.py's module docstring).
+    #
+    # The checker instance (not just its errors) is kept around afterward
+    # so its symbol table -- a real Scope tree, see semantic/symbols.py --
+    # can be serialized below for the IDE's symbol-table panel. None (not
+    # an empty tree) when semantic analysis didn't run at all, so the
+    # frontend can tell "no symbols" apart from "didn't get this far".
+    symbol_table_json = None
+    if not errors:
+        checker = SemanticChecker()
+        semantic_errors = checker.check(tree)
+        errors.extend(semantic_errors.as_strings())
+        symbol_table_json = checker.symbols.global_scope.to_dict()
+
     if errors:
         n = len(errors)
         noun = "error" if n == 1 else "errores"
@@ -64,6 +86,7 @@ def analyze(input_stream: InputStream) -> dict:
         "errors": errors,
         "status_message": status_message,
         "tree_json": _tree_to_dict(tree, parser.ruleNames),
+        "symbol_table_json": symbol_table_json,
     }
 
 

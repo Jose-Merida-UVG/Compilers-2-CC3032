@@ -1,0 +1,1181 @@
+"""The semantic checker: one ANTLR Visitor that walks the parse tree built
+by src/compiler.py and applies the semantic rules (see
+docs/Arquitectura.md).
+
+Methods are grouped by area -- scopes and declarations, types and
+functions, control flow and classes -- but they are largely independent:
+each one inspects its node, may record an error, and (for expressions)
+returns the node's Type. Anything not overridden here falls through to the
+generated visitor's default, which just recurses.
+
+Wiring: `compiler.py` calls `SemanticChecker().check(tree)` only when there
+are no lexical/syntax errors (see decision in that file) -- walking a
+parse tree ANTLR had to error-recover through is likely to produce noisy,
+misleading semantic errors on top of real ones.
+"""
+
+from __future__ import annotations
+
+from typing import Optional
+
+from CompiscriptParser import CompiscriptParser
+from CompiscriptVisitor import CompiscriptVisitor
+
+from semantic.errors import SemanticErrorList
+from semantic.symbols import ScopeKind, Symbol, SymbolKind, SymbolTable
+from semantic.types import (
+    ArrayType,
+    BooleanType,
+    ClassType,
+    ErrorType,
+    FloatType,
+    FunctionType,
+    IntegerType,
+    NullType,
+    PRIMITIVE_TYPES,
+    StringType,
+    Type,
+    UnknownType,
+    VoidType,
+)
+
+Ctx = object  # any ANTLR ParserRuleContext
+
+
+class SemanticChecker(CompiscriptVisitor):
+    def __init__(self) -> None:
+        # Init symbol table + error list
+        self.symbols = SymbolTable()
+        self.errors = SemanticErrorList()
+
+        # Additional data structure to track scope
+        self._function_return_stack: list[Type] = []
+        self._chain_base: Optional[Type] = None
+        self._loop_depth: int = 0
+        self._class_stack: list[ClassType] = []
+
+    def check(self, tree: Ctx) -> SemanticErrorList:
+        self.visit(tree)
+        return self.errors
+
+    def _error(self, ctx: Ctx, message: str) -> None:
+        """Record a semantic error anchored at the start token of `ctx`."""
+        self.errors.add(ctx.start.line, ctx.start.column, message)
+
+    def _resolve_type_node(self, type_ctx: CompiscriptParser.TypeContext) -> Type:
+        """Resolve a `type` parse node (`baseType ('[' ']')*`) to a
+        semantic Type object"""
+
+        base_name = type_ctx.baseType().getText()
+        result: Type = PRIMITIVE_TYPES.get(base_name)
+        if result is None:
+            # Not a primitive -> grammar's only other baseType alternative
+            # is a bare Identifier, i.e. a class name. Reuse the ClassType
+            # built by visitClassDeclaration: a fresh ClassType(name) would
+            # compare equal (__eq__ is name-based) but carry empty members
+            # and no parent, so every `.campo` on an annotated variable
+            # would wrongly report "no tiene un miembro".
+            symbol = self.symbols.resolve(base_name)
+            if symbol is not None and symbol.kind is SymbolKind.CLASS:
+                result = symbol.type
+            else:
+                # Not declared (yet): there is no hoisting, so a class used
+                # in an annotation above its own declaration lands here.
+                # Stay lenient rather than report a false "no declarada".
+                result = ClassType(base_name)
+        # `('[' ']')*` -- each '[' ']' pair adds one array dimension.
+        array_dims = (type_ctx.getChildCount() - 1) // 2
+        for _ in range(array_dims):
+            result = ArrayType(result)
+        return result
+
+    def _visit_type(self, ctx: Ctx) -> Type:
+        """self.visit(ctx) on an expression is expected to yield a Type."""
+        result = self.visit(ctx)
+        return result if result is not None else ErrorType()
+
+    @staticmethod
+    def _is_numeric(t: Type) -> bool:
+        return isinstance(t, (IntegerType, FloatType))
+
+    @staticmethod
+    def _operator_before(ctx: Ctx, i: int) -> str:
+        """Text of the operator token immediately before the i-th operand
+        (i >= 1) of a left-associative `sub (OP sub)*` rule -- children
+        alternate operand, operator, operand, operator, ..., so the
+        operator sits at index 2*i-1. Shared by every binary-expression."""
+        return ctx.getChild(2 * i - 1).getText()
+
+    # ── Tabla de símbolos y ámbito ──────────────────────────────────────
+    # declare/resolve via self.symbols (SymbolTable, see symbols.py);
+    # push/pop scopes with self.symbols.enter_scope(...)/.exit_scope().
+
+    def visitBlock(self, ctx: CompiscriptParser.BlockContext):
+        # New lexical scope per block. try/finally guarantees exit_scope()
+        # runs even if a statement inside raises/errors out mid-visit, so
+        # a bad block never leaves the scope stack unbalanced for the rest
+        # of the walk (see SymbolTable.exit_scope's docstring).
+        self.symbols.enter_scope(ScopeKind.BLOCK)
+        try:
+            # "código muerto" -- once a return/break/continue
+            # is visited, every statement after it in this same block can
+            # never execute. Only the first such statement is flagged
+            # (one error per dead region, not one per dead line).
+            terminated = False
+            for stmt in ctx.statement():
+                if terminated:
+                    self._error(
+                        stmt, "código muerto: esta instrucción nunca se ejecuta"
+                    )
+                    break
+                self.visit(stmt)
+                if (
+                    stmt.returnStatement()
+                    or stmt.breakStatement()
+                    or stmt.continueStatement()
+                ):
+                    terminated = True
+            return None
+        finally:
+            self.symbols.exit_scope()
+
+    def visitVariableDeclaration(
+        self, ctx: CompiscriptParser.VariableDeclarationContext
+    ):
+        # 'let' and 'var' are two syntactic spellings of the same thing in
+        # this grammar (no separate SymbolKind for each) -- both declare a
+        # SymbolKind.VARIABLE.
+        name = ctx.Identifier().getText()
+
+        if ctx.typeAnnotation():
+            declared_type: Type = self._resolve_type_node(ctx.typeAnnotation().type_())
+        else:
+            # Narrowed from the initializer's type below (same mechanism
+            # as an UnknownType symbol's first assignment). Stays
+            # UnknownType for `let x;` with no initializer at all.
+            declared_type = UnknownType()
+
+        symbol = Symbol(
+            name=name,
+            kind=SymbolKind.VARIABLE,
+            type=declared_type,
+            line=ctx.start.line,
+            column=ctx.start.column,
+        )
+        if not self.symbols.declare(symbol):
+            self._error(ctx, f"la variable '{name}' ya fue declarada en este ámbito")
+
+        # Declared *before* walking the initializer: `let x = x + 1;`
+        # resolves the rhs `x` to this new declaration rather than
+        # erroring as undeclared.
+        if ctx.initializer():
+            value_type = self._visit_type(ctx.initializer().expression())
+            if not isinstance(value_type, ErrorType):
+                if isinstance(symbol.type, UnknownType):
+                    symbol.type = value_type  # no annotation -- infer, for good
+                elif not value_type.is_assignable_to(symbol.type):
+                    self._error(
+                        ctx,
+                        f"la variable '{name}' se declaró como {symbol.type} "
+                        f"pero se inicializa con un valor de tipo {value_type}",
+                    )
+            return None
+        return self.visitChildren(ctx)
+
+    def visitClassDeclaration(self, ctx: CompiscriptParser.ClassDeclarationContext):
+        # `'class' Identifier (':' Identifier)? '{' classMember* '}'` --
+        # both the class name and the optional parent name are plain
+        # Identifier tokens on this same (unlabeled) context, in source
+        # order: index 0 is always the class's own name; index 1, if
+        # present, is the parent's name.
+        identifiers = ctx.Identifier()
+        class_name = identifiers[0].getText()
+
+        parent_type: Optional[ClassType] = None
+        if len(identifiers) > 1:
+            parent_name = identifiers[1].getText()
+            parent_symbol = self.symbols.resolve(parent_name)
+            if parent_symbol is None or parent_symbol.kind is not SymbolKind.CLASS:
+                self._error(ctx, f"la clase base '{parent_name}' no ha sido declarada")
+            elif isinstance(parent_symbol.type, ClassType):
+                parent_type = parent_symbol.type
+
+        class_type = ClassType(class_name, parent=parent_type)
+        symbol = Symbol(
+            name=class_name,
+            kind=SymbolKind.CLASS,
+            type=class_type,
+            line=ctx.start.line,
+            column=ctx.start.column,
+        )
+        if not self.symbols.declare(symbol):
+            self._error(ctx, f"la clase '{class_name}' ya fue declarada en este ámbito")
+
+        # New scope for the class body: this is what makes members declare
+        # into their own namespace instead of leaking into whatever scope
+        # contains the class declaration.
+        self.symbols.enter_scope(ScopeKind.CLASS, owner=class_name)
+        self._class_stack.append(class_type)
+        # Point the ClassType at the *same* dict object backing
+        # this scope (not a copy) -- '.' access / `new` / inherited-member
+        # lookup (visitPropertyAccessExpr, visitNewExpr) need to resolve
+        # members both from outside (after this method returns) and from
+        # *inside* the class body while it's still being visited (e.g.
+        # `this.nombre` used in `constructor` itself, referring to a
+        # `var nombre` declared earlier in the same body) -- a snapshot
+        # taken only at the end would still be empty for that second
+        # case, since classMember declarations happen during
+        # visitChildren below, not before it.
+        class_type.members = self.symbols.current.symbols
+        try:
+            return self.visitChildren(ctx)
+        finally:
+            self._class_stack.pop()
+            self.symbols.exit_scope()
+
+    def visitIdentifierExpr(self, ctx: CompiscriptParser.IdentifierExprContext):
+        # Read-side counterpart to visitVariableDeclaration: resolve walks
+        # up through parent scopes (see Scope.resolve), so this also
+        # covers reading a variable from an enclosing function/block --
+        # closures fall out of this for free, no special-casing needed.
+        name = ctx.Identifier().getText()
+        symbol = self.symbols.resolve(name)
+        if symbol is None:
+            self._error(ctx, f"la variable '{name}' no ha sido declarada")
+            # ErrorType, not UnknownType: this *is* the error being
+            # reported, not a legitimately-unresolved-yet type -- returning
+            # ErrorType stops it from cascading into unrelated errors in
+            # whatever expression contains this identifier (see
+            # types.py's ErrorType docstring).
+            return ErrorType()
+        return symbol.type
+
+    def visitAssignment(self, ctx: CompiscriptParser.AssignmentContext):
+        # This is the statement-level rule (`Identifier '=' expression ';'`
+        # or the property-assignment alternative), NOT visitAssignExpr
+        # below -- `statement` tries `assignment` before
+        # `expressionStatement`, so a plain `x = 5;` always parses through
+        # *this* method. visitAssignExpr only fires when an
+        # assignment shows up nested inside a larger expression (e.g.
+        # `print(x = 5)`), which is rare in practice.
+        #
+        # Both alternatives share this same (unlabeled) context class, so
+        # ctx.Identifier() alone can't tell them apart -- ctx.expression()
+        # returns 1 item for the plain form (just the rhs) and 2 for the
+        # property form (target object + rhs), which is how we tell them
+        # apart below.
+        exprs = ctx.expression()
+        if len(exprs) == 1:
+            # Plain form: Identifier '=' expression ';'
+            name = ctx.Identifier().getText()
+            symbol = self.symbols.resolve(name)
+            rhs_type = self._visit_type(exprs[0])
+
+            if symbol is None:
+                self._error(ctx, f"la variable '{name}' no ha sido declarada")
+                return None
+            if symbol.kind is SymbolKind.CONSTANT:
+                self._error(ctx, f"no se puede reasignar la constante '{name}'")
+                return None
+            if isinstance(rhs_type, ErrorType):
+                return None
+            if isinstance(symbol.type, UnknownType):
+                # First assignment narrows an UnknownType symbol, for
+                # good -- same mechanism as visitAssignExpr.
+                symbol.type = rhs_type
+            elif not rhs_type.is_assignable_to(symbol.type):
+                self._error(
+                    ctx,
+                    f"no se puede asignar un valor de tipo {rhs_type} a una variable de tipo {symbol.type}",
+                )
+            return None
+
+        # Property form: expression '.' Identifier '=' expression ';'
+        return self._check_property_assignment(
+            ctx, exprs[0], ctx.Identifier().getText(), exprs[1]
+        )
+
+    def visitForeachStatement(self, ctx: CompiscriptParser.ForeachStatementContext):
+        # 'foreach' '(' Identifier 'in' expression ')' block
+        name = ctx.Identifier().getText()
+
+        # Visited directly (not via visitChildren) so we can inspect its
+        # resolved type before deciding the loop variable's type, and so
+        # it isn't visited a second time when we walk the block below.
+        iterated_type = self.visit(ctx.expression())
+
+        if iterated_type is None:
+            # A rule somewhere in this expression's type-inference chain
+            # returned None instead of a Type, so we genuinely don't know.
+            # Stay silent rather than raise a false "no es un arreglo".
+            element_type: Type = UnknownType()
+        elif isinstance(iterated_type, ArrayType):
+            element_type = iterated_type.element
+        elif isinstance(iterated_type, ErrorType):
+            # Don't cascade: whatever produced this ErrorType already
+            # reported its own error.
+            element_type = ErrorType()
+        else:
+            self._error(ctx, "la expresión de 'foreach' debe ser un arreglo")
+            element_type = ErrorType()
+
+        # New BLOCK scope for the body, same shape as visitBlock: the loop
+        # variable lives only inside it, with the array's element type.
+        # The loop-depth counter is bumped below too, so break/continue
+        # work in a foreach body like in any other loop.
+        self.symbols.enter_scope(ScopeKind.BLOCK)
+        try:
+            self.symbols.declare(
+                Symbol(
+                    name=name,
+                    kind=SymbolKind.VARIABLE,
+                    type=element_type,
+                    line=ctx.start.line,
+                    column=ctx.start.column,
+                )
+            )
+            self._loop_depth += 1
+            try:
+                return self.visit(ctx.block())
+            finally:
+                self._loop_depth -= 1
+        finally:
+            self.symbols.exit_scope()
+
+    def visitTryCatchStatement(self, ctx: CompiscriptParser.TryCatchStatementContext):
+        # OUT OF SCOPE (team decision)
+        return self.visitChildren(ctx)
+
+    # ── Sistema de tipos y funciones ────────────────────────────────────
+    #
+    # visitLiteralExpr/visitPrimaryExpr/visitLeftHandSide below are not
+    # rules of their own, but the rest of this section
+    # can't produce a real Type without them (literals are the base case
+    # of every expression, and the default ANTLR visitChildren aggregation
+    # silently returns None for a parenthesized `(expr)` and can't thread
+    # a call's callee type into visitCallExpr at all) -- claiming them
+    # here since "sistema de tipos" is this section's whole job.
+
+    def visitLiteralExpr(self, ctx: CompiscriptParser.LiteralExprContext):
+        # literalExpr: Literal | arrayLiteral | 'null' | 'true' | 'false';
+        # NOTE: the grammar's `Literal` lexer rule is declared *before*
+        # FloatLiteral/IntegerLiteral/StringLiteral and matches the exact
+        # same spans as all three -- ANTLR's earliest-rule tiebreak means
+        # every numeric/string literal actually lexes as token type
+        # `Literal`, never as the more specific ones (verified against the
+        # generated lexer). So the specific kind has to be sniffed from
+        # the literal's own text here instead of from the token type.
+        if ctx.Literal() is not None:
+            text = ctx.Literal().getText()
+            if text.startswith('"'):
+                return StringType()
+            if "." in text:
+                return FloatType()
+            return IntegerType()
+        if ctx.arrayLiteral() is not None:
+            # Passthrough to visitArrayLiteral; _visit_type maps a None
+            # to ErrorType so callers don't have to special-case it.
+            return self._visit_type(ctx.arrayLiteral())
+        text = ctx.getText()
+        if text == "null":
+            return NullType()
+        # Only remaining grammar alternative is 'true' | 'false'.
+        return BooleanType()
+
+    def visitPrimaryExpr(self, ctx: CompiscriptParser.PrimaryExprContext):
+        # primaryExpr: literalExpr | leftHandSide | '(' expression ')';
+        # Needs an explicit override: for the parenthesized alternative,
+        # ANTLR's default child-aggregation would return the *last*
+        # child's result, i.e. the closing ')' terminal -- None, not the
+        # inner expression's type.
+        if ctx.literalExpr() is not None:
+            return self._visit_type(ctx.literalExpr())
+        if ctx.leftHandSide() is not None:
+            return self._visit_type(ctx.leftHandSide())
+        return self._visit_type(ctx.expression())
+
+    def visitLeftHandSide(self, ctx: CompiscriptParser.LeftHandSideContext):
+        # leftHandSide: primaryAtom (suffixOp)*; -- e.g. `foo`, `foo(1,2)`,
+        # `obj.campo`, `arr[0]`, or a chain like `obj.metodo(1).campo`.
+        # Each suffixOp needs the type of *what came before it in the
+        # chain* (the callee for a call, the array for an index, the
+        # object for a property access) -- that's not available from the
+        # suffixOp's own ctx, so it's threaded through `self._chain_base`
+        # right before visiting each one.
+        #
+        # Every suffix method (visitCallExpr/visitIndexExpr/
+        # visitPropertyAccessExpr) must read `self._chain_base` at the top,
+        # before visiting any nested subtree that could itself be a chain
+        # and overwrite it.
+        current: Type = self._visit_type(ctx.primaryAtom())
+        for suffix in ctx.suffixOp():
+            self._chain_base = current
+            current = self._visit_type(suffix)
+        return current
+
+    def visitConstantDeclaration(
+        self, ctx: CompiscriptParser.ConstantDeclarationContext
+    ):
+        # constantDeclaration: 'const' Identifier typeAnnotation? '=' expression ';'
+        # The grammar already makes the initializer mandatory (it's not
+        # `initializer?` like variableDeclaration, just a bare
+        # '=' expression), so "const must be initialized" falls out for
+        # free -- this is really just declare + type-check, mirroring
+        # visitVariableDeclaration's shape but for CONSTANT
+        # and with no UnknownType branch: a const's type is settled here,
+        # for good, since it can never be reassigned afterward.
+        name = ctx.Identifier().getText()
+        value_type = self._visit_type(ctx.expression())
+
+        if ctx.typeAnnotation():
+            declared_type = self._resolve_type_node(ctx.typeAnnotation().type_())
+            if not isinstance(
+                value_type, ErrorType
+            ) and not value_type.is_assignable_to(declared_type):
+                self._error(
+                    ctx,
+                    f"la constante '{name}' se declaró como {declared_type} "
+                    f"pero se inicializa con un valor de tipo {value_type}",
+                )
+            symbol_type: Type = declared_type
+        else:
+            symbol_type = (
+                ErrorType() if isinstance(value_type, ErrorType) else value_type
+            )
+
+        symbol = Symbol(
+            name=name,
+            kind=SymbolKind.CONSTANT,
+            type=symbol_type,
+            line=ctx.start.line,
+            column=ctx.start.column,
+        )
+        if not self.symbols.declare(symbol):
+            self._error(ctx, f"'{name}' ya fue declarada en este ámbito")
+        return None
+
+    def visitAdditiveExpr(self, ctx: CompiscriptParser.AdditiveExprContext):
+        operands = ctx.multiplicativeExpr()
+        result: Type = self._visit_type(operands[0])
+        for i in range(1, len(operands)):
+            op = self._operator_before(ctx, i)
+            rhs = self._visit_type(operands[i])
+            result = self._check_additive(ctx, op, result, rhs)
+        return result
+
+    def _check_additive(self, ctx: Ctx, op: str, left: Type, right: Type) -> Type:
+        if isinstance(left, ErrorType) or isinstance(right, ErrorType):
+            return ErrorType()
+        # '+' doubles as string concatenation -- required by the
+        # language's own spec example (`return "Hola " + nombre;` in
+        # docs/DefinicionCompiscript.md), so this isn't purely numeric
+        # like '-' is.
+        if op == "+" and isinstance(left, StringType) and isinstance(right, StringType):
+            return StringType()
+        if self._is_numeric(left) and self._is_numeric(right):
+            return (
+                FloatType()
+                if isinstance(left, FloatType) or isinstance(right, FloatType)
+                else IntegerType()
+            )
+        expected = (
+            "integer, float, o string (solo para '+')"
+            if op == "+"
+            else "integer o float"
+        )
+        self._error(
+            ctx,
+            f"el operador '{op}' requiere operandos de tipo {expected}; se encontró {left} y {right}",
+        )
+        return ErrorType()
+
+    def visitMultiplicativeExpr(self, ctx: CompiscriptParser.MultiplicativeExprContext):
+        operands = ctx.unaryExpr()
+        result: Type = self._visit_type(operands[0])
+        for i in range(1, len(operands)):
+            op = self._operator_before(ctx, i)
+            rhs = self._visit_type(operands[i])
+            if isinstance(result, ErrorType) or isinstance(rhs, ErrorType):
+                result = ErrorType()
+            elif self._is_numeric(result) and self._is_numeric(rhs):
+                result = (
+                    FloatType()
+                    if isinstance(result, FloatType) or isinstance(rhs, FloatType)
+                    else IntegerType()
+                )
+            else:
+                self._error(
+                    ctx,
+                    f"el operador '{op}' requiere operandos de tipo integer o float; se encontró {result} y {rhs}",
+                )
+                result = ErrorType()
+        return result
+
+    def visitUnaryExpr(self, ctx: CompiscriptParser.UnaryExprContext):
+        # unaryExpr: ('-' | '!') unaryExpr | primaryExpr;
+        if ctx.primaryExpr() is not None:
+            return self._visit_type(ctx.primaryExpr())
+
+        op = ctx.getChild(0).getText()
+        operand = self._visit_type(ctx.unaryExpr())
+        if isinstance(operand, ErrorType):
+            return ErrorType()
+        if op == "!":
+            if not isinstance(operand, BooleanType):
+                self._error(
+                    ctx,
+                    f"el operador '!' requiere un operando de tipo boolean; se encontró {operand}",
+                )
+                return ErrorType()
+            return BooleanType()
+        # op == '-'
+        if not self._is_numeric(operand):
+            self._error(
+                ctx,
+                f"el operador unario '-' requiere un operando de tipo integer o float; se encontró {operand}",
+            )
+            return ErrorType()
+        return operand
+
+    def visitTernaryExpr(self, ctx: CompiscriptParser.TernaryExprContext):
+        # conditionalExpr: logicalOrExpr ('?' expression ':' expression)? # TernaryExpr;
+        cond = self._visit_type(ctx.logicalOrExpr())
+        branches = ctx.expression()
+        if not branches:
+            return cond  # no '?' present -- plain passthrough
+
+        if not isinstance(cond, (ErrorType, BooleanType)):
+            self._error(
+                ctx,
+                f"la condición del operador ternario debe ser boolean; se encontró {cond}",
+            )
+
+        then_type = self._visit_type(branches[0])
+        else_type = self._visit_type(branches[1])
+        if isinstance(then_type, ErrorType) or isinstance(else_type, ErrorType):
+            return ErrorType()
+        if then_type.is_assignable_to(else_type):
+            return else_type
+        if else_type.is_assignable_to(then_type):
+            return then_type
+        self._error(
+            ctx,
+            f"las dos ramas del operador ternario deben tener tipos compatibles; "
+            f"se encontró {then_type} y {else_type}",
+        )
+        return ErrorType()
+
+    def visitLogicalOrExpr(self, ctx: CompiscriptParser.LogicalOrExprContext):
+        return self._check_logical(ctx, ctx.logicalAndExpr(), "||")
+
+    def visitLogicalAndExpr(self, ctx: CompiscriptParser.LogicalAndExprContext):
+        return self._check_logical(ctx, ctx.equalityExpr(), "&&")
+
+    def _check_logical(self, ctx: Ctx, operands, op: str) -> Type:
+        # `sub (OP sub)*`: with a single operand (no OP actually present),
+        # this rule is a transparent link in the expression precedence
+        # chain -- EVERY expression flows through logicalOrExpr/
+        # logicalAndExpr on its way down to a literal, not just genuinely
+        # boolean ones, so the single-operand case must pass the real
+        # type through unchanged rather than coercing it to boolean.
+        result = self._visit_type(operands[0])
+        if len(operands) == 1:
+            return result
+        ok = True
+        if isinstance(result, ErrorType):
+            ok = False
+        elif not isinstance(result, BooleanType):
+            self._error(
+                ctx,
+                f"el operador '{op}' requiere operandos de tipo boolean; se encontró {result}",
+            )
+            ok = False
+        for operand_ctx in operands[1:]:
+            t = self._visit_type(operand_ctx)
+            if isinstance(t, ErrorType):
+                ok = False
+            elif not isinstance(t, BooleanType):
+                self._error(
+                    ctx,
+                    f"el operador '{op}' requiere operandos de tipo boolean; se encontró {t}",
+                )
+                ok = False
+        return BooleanType() if ok else ErrorType()
+
+    def visitEqualityExpr(self, ctx: CompiscriptParser.EqualityExprContext):
+        # Same passthrough note as _check_logical above: with a single
+        # operand (no '=='/'!=' present) this must return the real type,
+        # not force BooleanType.
+        operands = ctx.relationalExpr()
+        result: Type = self._visit_type(operands[0])
+        if len(operands) == 1:
+            return result
+        ok = not isinstance(result, ErrorType)
+        for i in range(1, len(operands)):
+            op = self._operator_before(ctx, i)
+            rhs = self._visit_type(operands[i])
+            if isinstance(rhs, ErrorType):
+                ok = False
+            elif not (result.is_assignable_to(rhs) or rhs.is_assignable_to(result)):
+                self._error(
+                    ctx,
+                    f"el operador '{op}' requiere operandos de tipos compatibles; se encontró {result} y {rhs}",
+                )
+                ok = False
+            result = rhs
+        return BooleanType() if ok else ErrorType()
+
+    def visitRelationalExpr(self, ctx: CompiscriptParser.RelationalExprContext):
+        # Same passthrough note as _check_logical above: with a single
+        # operand (no '<'/'<='/'>'/'>=' present) this must return the real
+        # type, not force BooleanType.
+        operands = ctx.additiveExpr()
+        result: Type = self._visit_type(operands[0])
+        if len(operands) == 1:
+            return result
+        ok = not isinstance(result, ErrorType)
+        for i in range(1, len(operands)):
+            op = self._operator_before(ctx, i)
+            rhs = self._visit_type(operands[i])
+            if isinstance(rhs, ErrorType):
+                ok = False
+            elif not (self._is_numeric(result) and self._is_numeric(rhs)):
+                self._error(
+                    ctx,
+                    f"el operador '{op}' requiere operandos de tipo integer o float; se encontró {result} y {rhs}",
+                )
+                ok = False
+            result = rhs
+        return BooleanType() if ok else ErrorType()
+
+    def _resolve_assignment_target(
+        self, lhs_ctx: CompiscriptParser.LeftHandSideContext
+    ):
+        """For a bare-identifier lhs (`x = ...`, no suffixOp), return
+        (symbol, its current type) so UnknownType can be narrowed in
+        visitAssignExpr on first assignment. For anything with suffixOps
+        (`arr[0] = ...`, `obj.campo = ...` reached through here, chains --
+        there's no single Symbol to narrow for those), return
+        (None, the visited type) for a plain compatibility check instead."""
+        if len(lhs_ctx.suffixOp()) == 0:
+            name = lhs_ctx.primaryAtom().getText()
+            symbol = self.symbols.resolve(name)
+            if symbol is None:
+                self._error(lhs_ctx, f"la variable '{name}' no ha sido declarada")
+                return None, ErrorType()
+            if symbol.kind is SymbolKind.CONSTANT:
+                self._error(lhs_ctx, f"no se puede reasignar la constante '{name}'")
+                return None, ErrorType()
+            return symbol, symbol.type
+        return None, self._visit_type(lhs_ctx)
+
+    def visitAssignExpr(self, ctx: CompiscriptParser.AssignExprContext):
+        # assignmentExpr: lhs=leftHandSide '=' assignmentExpr # AssignExpr;
+        # This is the general form -- lhs can be a bare identifier *or* a
+        # chain like `arr[0]` (leftHandSide allows suffixOps), so it
+        # covers more than just "assignment nested in a larger expression"
+        # (e.g. `print(x = 5)`): `arr[0] = 5;` as a standalone statement
+        # also parses through here via expressionStatement, since it
+        # doesn't match the statement-level `assignment` rule's two
+        # simpler alternatives (see visitAssignment's comment).
+        rhs_type = self._visit_type(ctx.assignmentExpr())
+        symbol, target_type = self._resolve_assignment_target(ctx.lhs)
+
+        if isinstance(rhs_type, ErrorType) or isinstance(target_type, ErrorType):
+            return ErrorType()
+
+        if symbol is not None and isinstance(symbol.type, UnknownType):
+            symbol.type = rhs_type  # first assignment narrows it, for good
+            return rhs_type
+
+        if not rhs_type.is_assignable_to(target_type):
+            self._error(
+                ctx,
+                f"no se puede asignar un valor de tipo {rhs_type} a una variable de tipo {target_type}",
+            )
+            return ErrorType()
+        return target_type
+
+    def visitFunctionDeclaration(
+        self, ctx: CompiscriptParser.FunctionDeclarationContext
+    ):
+        # functionDeclaration: 'function' Identifier '(' parameters? ')' (':' type)? block;
+        name = ctx.Identifier().getText()
+
+        param_names: list[str] = []
+        param_types: list[Type] = []
+        if ctx.parameters():
+            for param_ctx in ctx.parameters().parameter():
+                param_names.append(param_ctx.Identifier().getText())
+                if param_ctx.type_():
+                    param_types.append(self._resolve_type_node(param_ctx.type_()))
+                else:
+                    # Untyped parameter: accepts any argument (see
+                    # UnknownType.is_assignable_to / the target-side
+                    # UnknownType case added to Type.is_assignable_to in
+                    # types.py for this exact case).
+                    param_types.append(UnknownType())
+
+        return_type: Type = (
+            self._resolve_type_node(ctx.type_()) if ctx.type_() else VoidType()
+        )
+        function_type = FunctionType(param_types, return_type)
+
+        symbol = Symbol(
+            name=name,
+            kind=SymbolKind.FUNCTION,
+            type=function_type,
+            line=ctx.start.line,
+            column=ctx.start.column,
+        )
+        # Declared in the *enclosing* scope, before entering the
+        # function's own scope below: that's what makes a recursive call
+        # inside the body resolve (it walks up through the function scope
+        # to find its own name here), and what lets the function be
+        # called from outside afterward. Redeclaring a name here is the
+        # "sin sobrecarga" rule (see docs/Arquitectura.md).
+        if not self.symbols.declare(symbol):
+            self._error(
+                ctx,
+                f"la función '{name}' ya fue declarada en este ámbito (no se soporta sobrecarga)",
+            )
+
+        self.symbols.enter_scope(ScopeKind.FUNCTION, owner=name)
+        self._function_return_stack.append(return_type)
+        try:
+            for param_name, param_type in zip(param_names, param_types):
+                param_symbol = Symbol(
+                    name=param_name,
+                    kind=SymbolKind.PARAMETER,
+                    type=param_type,
+                    line=ctx.start.line,
+                    column=ctx.start.column,
+                )
+                if not self.symbols.declare(param_symbol):
+                    self._error(ctx, f"el parámetro '{param_name}' está duplicado")
+            # Nested functions (closures): visiting the block here means a
+            # `function` declared inside this body runs this same method
+            # again, declaring the inner function into *this* FUNCTION
+            # scope (self.symbols.current at that point) -- its own body
+            # then chains up through here for outer locals/parameters, so
+            # closures fall out for free with no special-casing.
+            self.visit(ctx.block())
+        finally:
+            self._function_return_stack.pop()
+            self.symbols.exit_scope()
+
+        if not isinstance(
+            return_type, (VoidType, ErrorType)
+        ) and not self._always_returns(ctx.block()):
+            self._error(
+                ctx,
+                f"la función '{name}' declara retorno {return_type} pero no todos "
+                f"sus caminos retornan un valor",
+            )
+        return None
+
+    def _always_returns(self, ctx: Ctx) -> bool:
+        """Does this statement/block always hit a `return` before finishing?
+
+        Only the shapes the grammar can guarantee statically: a return, a
+        block whose statements include one, and an if/else where *both*
+        branches do. A loop never counts -- its body may run zero times.
+        Nested `function` declarations are skipped: their returns belong to
+        the inner function, not this one."""
+        if isinstance(ctx, CompiscriptParser.ReturnStatementContext):
+            return True
+        if isinstance(ctx, CompiscriptParser.BlockContext):
+            return any(self._always_returns(st) for st in ctx.statement())
+        if isinstance(ctx, CompiscriptParser.IfStatementContext):
+            blocks = ctx.block()
+            return len(blocks) == 2 and all(self._always_returns(b) for b in blocks)
+        if isinstance(ctx, CompiscriptParser.StatementContext):
+            if ctx.functionDeclaration() is not None:
+                return False
+            child = ctx.getChild(0)
+            return self._always_returns(child)
+        return False
+
+    def visitCallExpr(self, ctx: CompiscriptParser.CallExprContext):
+        # suffixOp: '(' arguments? ')' # CallExpr; -- only ever reached as
+        # a suffixOp of leftHandSide, which stashes the callee's type in
+        # self._chain_base right before visiting this (see
+        # visitLeftHandSide). Read it before visiting the arguments below:
+        # they can themselves contain a call/chain that would overwrite
+        # self._chain_base before we're done with it.
+        callee_type = self._chain_base
+
+        arg_exprs = ctx.arguments().expression() if ctx.arguments() else []
+        arg_types = [self._visit_type(a) for a in arg_exprs]
+
+        if callee_type is None or isinstance(callee_type, ErrorType):
+            return ErrorType()
+        if not isinstance(callee_type, FunctionType):
+            self._error(
+                ctx, f"solo se puede invocar una función; se encontró {callee_type}"
+            )
+            return ErrorType()
+
+        if len(arg_types) != len(callee_type.params):
+            self._error(
+                ctx,
+                f"se esperaban {len(callee_type.params)} argumento(s) y se recibieron {len(arg_types)}",
+            )
+            return ErrorType()
+
+        ok = True
+        for i, (arg_type, param_type) in enumerate(
+            zip(arg_types, callee_type.params), start=1
+        ):
+            if isinstance(arg_type, ErrorType):
+                ok = False
+            elif not arg_type.is_assignable_to(param_type):
+                self._error(
+                    ctx,
+                    f"el argumento {i} debe ser de tipo {param_type}; se encontró {arg_type}",
+                )
+                ok = False
+        return callee_type.ret if ok else ErrorType()
+
+    def visitReturnStatement(self, ctx: CompiscriptParser.ReturnStatementContext):
+        # "return solo dentro de una función": outside any function this
+        # stack is empty.
+        if not self._function_return_stack:
+            self._error(ctx, "'return' solo puede usarse dentro de una función")
+            return self.visitChildren(ctx)
+
+        expected = self._function_return_stack[-1]
+        actual: Type = (
+            VoidType()
+            if ctx.expression() is None
+            else self._visit_type(ctx.expression())
+        )
+
+        if not isinstance(actual, ErrorType) and not actual.is_assignable_to(expected):
+            self._error(
+                ctx,
+                f"el valor de retorno debe ser de tipo {expected}; se encontró {actual}",
+            )
+        return None
+
+    # ── Control de flujo, clases y arreglos ─────────────────────────────
+
+    def _resolve_member(self, class_type: ClassType, name: str) -> Optional[Symbol]:
+        """Walk up the inheritance chain (class_type -> parent -> ...)
+        looking for a member declared with this name. Used by both '.'
+        access and `new`'s constructor lookup."""
+        node: Optional[ClassType] = class_type
+        while node is not None:
+            member = node.members.get(name)
+            if member is not None:
+                return member
+            node = node.parent
+        return None
+
+    def visitIfStatement(self, ctx: CompiscriptParser.IfStatementContext):
+        cond_type = self._visit_type(ctx.expression())
+        if not isinstance(cond_type, (BooleanType, ErrorType)):
+            self._error(
+                ctx, f"la condición de 'if' debe ser boolean; se encontró {cond_type}"
+            )
+        for block in ctx.block():  # then-block, and else-block if present
+            self.visit(block)
+        return None
+
+    def visitWhileStatement(self, ctx: CompiscriptParser.WhileStatementContext):
+        cond_type = self._visit_type(ctx.expression())
+        if not isinstance(cond_type, (BooleanType, ErrorType)):
+            self._error(
+                ctx,
+                f"la condición de 'while' debe ser boolean; se encontró {cond_type}",
+            )
+        self._loop_depth += 1
+        try:
+            self.visit(ctx.block())
+        finally:
+            self._loop_depth -= 1
+        return None
+
+    def visitDoWhileStatement(self, ctx: CompiscriptParser.DoWhileStatementContext):
+        # 'do' block 'while' '(' expression ')' ';' -- body runs before
+        # the condition is even reachable in the source, so visit it
+        # first; loop-tracking still has to wrap only the body.
+        self._loop_depth += 1
+        try:
+            self.visit(ctx.block())
+        finally:
+            self._loop_depth -= 1
+        cond_type = self._visit_type(ctx.expression())
+        if not isinstance(cond_type, (BooleanType, ErrorType)):
+            self._error(
+                ctx,
+                f"la condición de 'do-while' debe ser boolean; se encontró {cond_type}",
+            )
+        return None
+
+    def visitForStatement(self, ctx: CompiscriptParser.ForStatementContext):
+        # 'for' '(' (variableDeclaration | assignment | ';') expression? ';' expression? ')' block
+        # A new BLOCK scope wraps the whole statement so a
+        # `variableDeclaration` init clause (`for (let i = 0; ...)`) is
+        # scoped to the loop, not leaked into whatever contains it.
+        self.symbols.enter_scope(ScopeKind.BLOCK)
+        try:
+            if ctx.variableDeclaration():
+                self.visit(ctx.variableDeclaration())
+            elif ctx.assignment():
+                self.visit(ctx.assignment())
+
+            # `expression? ';' expression?` -- both clauses are optional
+            # *independently*, so a count of 1 is ambiguous: it could be
+            # the condition or the increment. Position settles it. The
+            # separator is the last ';' among this node's own children
+            # (the init clause's ';' is either inside its
+            # variableDeclaration/assignment or is an earlier child):
+            # before it is the condition, after it the increment.
+            sep = max(
+                i
+                for i in range(ctx.getChildCount())
+                if ctx.getChild(i).getText() == ";"
+            )
+            condition = None
+            increment = None
+            for i in range(ctx.getChildCount()):
+                if ctx.getChild(i) in ctx.expression():
+                    if i < sep:
+                        condition = ctx.getChild(i)
+                    else:
+                        increment = ctx.getChild(i)
+
+            if condition is not None:
+                cond_type = self._visit_type(condition)
+                if not isinstance(cond_type, (BooleanType, ErrorType)):
+                    self._error(
+                        ctx,
+                        f"la condición de 'for' debe ser boolean; se encontró {cond_type}",
+                    )
+            if increment is not None:
+                self._visit_type(increment)  # solo por sus efectos
+
+            self._loop_depth += 1
+            try:
+                self.visit(ctx.block())
+            finally:
+                self._loop_depth -= 1
+            return None
+        finally:
+            self.symbols.exit_scope()
+
+    def visitSwitchStatement(self, ctx: CompiscriptParser.SwitchStatementContext):
+        # switchCase/defaultCase are bare statement lists, not `block`, so
+        # no scope opens automatically like it does for if/while/for. One
+        # BLOCK scope wraps the whole switch: all cases share one scope,
+        # so same-name declarations across cases still collide, but
+        # nothing leaks past the closing '}'.
+        switch_type = self._visit_type(ctx.expression())
+        self.symbols.enter_scope(ScopeKind.BLOCK)
+        try:
+            for case_ctx in ctx.switchCase():
+                case_type = self._visit_type(case_ctx.expression())
+                if (
+                    not isinstance(switch_type, ErrorType)
+                    and not isinstance(case_type, ErrorType)
+                    and not case_type.is_assignable_to(switch_type)
+                    and not switch_type.is_assignable_to(case_type)
+                ):
+                    self._error(
+                        case_ctx,
+                        f"el tipo de 'case' ({case_type}) no es compatible con el de 'switch' ({switch_type})",
+                    )
+                for stmt in case_ctx.statement():
+                    self.visit(stmt)
+            if ctx.defaultCase():
+                for stmt in ctx.defaultCase().statement():
+                    self.visit(stmt)
+        finally:
+            self.symbols.exit_scope()
+        return None
+
+    def visitBreakStatement(self, ctx: CompiscriptParser.BreakStatementContext):
+        if self._loop_depth == 0:
+            self._error(ctx, "'break' solo puede usarse dentro de un bucle")
+        return None
+
+    def visitContinueStatement(self, ctx: CompiscriptParser.ContinueStatementContext):
+        if self._loop_depth == 0:
+            self._error(ctx, "'continue' solo puede usarse dentro de un bucle")
+        return None
+
+    def visitPropertyAccessExpr(self, ctx: CompiscriptParser.PropertyAccessExprContext):
+        # suffixOp: '.' Identifier # PropertyAccessExpr -- target's type
+        # was stashed by visitLeftHandSide right before this was visited;
+        # read it immediately, this method visits nothing else that could
+        # clobber it.
+        target_type = self._chain_base
+        name = ctx.Identifier().getText()
+
+        if target_type is None or isinstance(target_type, ErrorType):
+            return ErrorType()
+        if not isinstance(target_type, ClassType):
+            self._error(
+                ctx,
+                f"solo se puede acceder a miembros ('.') de un objeto; se encontró {target_type}",
+            )
+            return ErrorType()
+
+        member = self._resolve_member(target_type, name)
+        if member is None:
+            self._error(
+                ctx, f"la clase '{target_type.class_name}' no tiene un miembro '{name}'"
+            )
+            return ErrorType()
+        return member.type
+
+    def _check_property_assignment(
+        self, ctx: Ctx, target_ctx, name: str, value_ctx
+    ) -> Type:
+        """Write side of '.': the member must exist on the target class and
+        the value must fit its type. Shared by the statement form
+        (visitAssignment) and the expression form (visitPropertyAssignExpr)."""
+        target_type = self._visit_type(target_ctx)
+        value_type = self._visit_type(value_ctx)
+
+        if isinstance(target_type, ErrorType) or isinstance(value_type, ErrorType):
+            return ErrorType()
+        if not isinstance(target_type, ClassType):
+            self._error(
+                ctx,
+                f"solo se puede asignar a miembros ('.') de un objeto; se encontró {target_type}",
+            )
+            return ErrorType()
+
+        member = self._resolve_member(target_type, name)
+        if member is None:
+            self._error(
+                ctx, f"la clase '{target_type.class_name}' no tiene un miembro '{name}'"
+            )
+            return ErrorType()
+        if member.kind is SymbolKind.CONSTANT:
+            self._error(ctx, f"no se puede asignar a '{name}': es una constante")
+            return ErrorType()
+        if not value_type.is_assignable_to(member.type):
+            self._error(
+                ctx,
+                f"no se puede asignar un valor de tipo {value_type} a '{name}', de tipo {member.type}",
+            )
+            return ErrorType()
+        return member.type
+
+    def visitPropertyAssignExpr(self, ctx: CompiscriptParser.PropertyAssignExprContext):
+        # assignmentExpr: lhs=leftHandSide '.' Identifier '=' assignmentExpr
+        # Reached when a property assignment shows up inside a larger
+        # expression, or when the lhs has suffixOps (`a.b.c = ...`), which
+        # the statement-level `assignment` rule can't match.
+        return self._check_property_assignment(
+            ctx, ctx.lhs, ctx.Identifier().getText(), ctx.assignmentExpr()
+        )
+
+    def visitNewExpr(self, ctx: CompiscriptParser.NewExprContext):
+        # primaryAtom: 'new' Identifier '(' arguments? ')' # NewExpr
+        class_name = ctx.Identifier().getText()
+        symbol = self.symbols.resolve(class_name)
+        if symbol is None or symbol.kind is not SymbolKind.CLASS:
+            self._error(ctx, f"la clase '{class_name}' no ha sido declarada")
+            return ErrorType()
+
+        class_type = symbol.type
+        assert isinstance(class_type, ClassType)
+
+        arg_exprs = ctx.arguments().expression() if ctx.arguments() else []
+        arg_types = [self._visit_type(a) for a in arg_exprs]
+
+        constructor = self._resolve_member(class_type, "constructor")
+        if constructor is None:
+            # No explicit constructor declared: only a no-argument `new`
+            # makes sense.
+            if arg_types:
+                self._error(
+                    ctx,
+                    f"la clase '{class_name}' no declara un constructor que reciba argumentos",
+                )
+            return class_type
+
+        if not isinstance(constructor.type, FunctionType):
+            self._error(ctx, f"'constructor' en '{class_name}' no es invocable")
+            return class_type
+
+        ctor_type = constructor.type
+        if len(arg_types) != len(ctor_type.params):
+            self._error(
+                ctx,
+                f"el constructor de '{class_name}' espera {len(ctor_type.params)} argumento(s) y se recibieron {len(arg_types)}",
+            )
+            return class_type
+
+        for i, (arg_type, param_type) in enumerate(
+            zip(arg_types, ctor_type.params), start=1
+        ):
+            if not isinstance(arg_type, ErrorType) and not arg_type.is_assignable_to(
+                param_type
+            ):
+                self._error(
+                    ctx,
+                    f"el argumento {i} del constructor debe ser de tipo {param_type}; se encontró {arg_type}",
+                )
+        return class_type
+
+    def visitThisExpr(self, ctx: CompiscriptParser.ThisExprContext):
+        if self.symbols.current.enclosing(ScopeKind.CLASS) is None:
+            self._error(ctx, "'this' solo puede usarse dentro de una clase")
+            return ErrorType()
+        return self._class_stack[-1]
+
+    def visitIndexExpr(self, ctx: CompiscriptParser.IndexExprContext):
+        # suffixOp: '[' expression ']' # IndexExpr -- same _chain_base
+        # convention as visitPropertyAccessExpr; read it before visiting
+        # the index expression (which could itself be a chain).
+        target_type = self._chain_base
+        index_type = self._visit_type(ctx.expression())
+
+        if target_type is None or isinstance(target_type, ErrorType):
+            return ErrorType()
+        if not isinstance(target_type, ArrayType):
+            self._error(
+                ctx, f"solo se puede indexar un arreglo; se encontró {target_type}"
+            )
+            return ErrorType()
+        if not isinstance(index_type, (IntegerType, ErrorType)):
+            self._error(
+                ctx,
+                f"el índice de un arreglo debe ser de tipo integer; se encontró {index_type}",
+            )
+            return ErrorType()
+        return target_type.element
+
+    def visitArrayLiteral(self, ctx: CompiscriptParser.ArrayLiteralContext):
+        elem_exprs = ctx.expression()
+        if not elem_exprs:
+            # `[]` with nothing to infer from -- same open slot as an
+            # untyped `let x;` (see UnknownType's docstring); a later
+            # assignment/annotation is expected to narrow it.
+            return ArrayType(UnknownType())
+
+        elem_types = [self._visit_type(e) for e in elem_exprs]
+        result_type: Type = elem_types[0]
+        for t in elem_types[1:]:
+            if isinstance(t, ErrorType) or isinstance(result_type, ErrorType):
+                result_type = ErrorType()
+                continue
+            if t.is_assignable_to(result_type):
+                continue
+            if result_type.is_assignable_to(t):
+                # e.g. [1, 2.5]: integer is assignable to float, so the
+                # element type widens to float (same rule as arithmetic
+                # promotion) instead of erroring.
+                result_type = t
+                continue
+            self._error(
+                ctx,
+                f"los elementos del arreglo deben tener un tipo compatible; se encontró {t} junto a {result_type}",
+            )
+            result_type = ErrorType()
+        return ArrayType(result_type)

@@ -154,7 +154,7 @@ arrayLiteral: '[' (expression (',' expression)*)? ']';
 // ------------------
 
 type: baseType ('[' ']')*;
-baseType: 'boolean' | 'integer' | 'string' | Identifier;
+baseType: 'boolean' | 'integer' | 'float' | 'string' | Identifier;
 
 // ------------------
 // Lexer Rules
@@ -162,9 +162,14 @@ baseType: 'boolean' | 'integer' | 'string' | Identifier;
 
 Literal
   : IntegerLiteral
+  | FloatLiteral
   | StringLiteral
   ;
 
+// FloatLiteral before IntegerLiteral: ANTLR's max-munch rule already picks
+// the longer match for "3.14", but keeping the more specific rule first
+// documents the intent.
+FloatLiteral: [0-9]+ '.' [0-9]+;
 IntegerLiteral: [0-9]+;
 StringLiteral: '"' (~["\r\n])* '"';
 

@@ -3,6 +3,7 @@ import type * as Monaco from "monaco-editor";
 import type { EditorTab } from "../../types";
 import { registerCompiscriptLanguage, registerOutputLanguage } from "../../lib/monaco-compiscript";
 import ParseTreeViewer from "../ParseTreeViewer/ParseTreeViewer";
+import SymbolTableViewer from "../SymbolTableViewer/SymbolTableViewer";
 import MarkdownViewer from "../MarkdownViewer/MarkdownViewer";
 import "./Editor.css";
 
@@ -22,6 +23,7 @@ export default function EditorPane({
   const active = tabs.find((t) => t.path === activeTab) ?? null;
   const isRunnable = !!onRunFile;
   const isTreeTab = !!(active?.treeData);
+  const isSymbolTableTab = !!(active?.symbolTableData);
   const isMarkdown = activeTab?.endsWith(".md") ?? false;
 
   const handleBeforeMount = (monaco: typeof Monaco) => {
@@ -76,6 +78,8 @@ export default function EditorPane({
         {active ? (
           isTreeTab ? (
             <ParseTreeViewer data={active.treeData!} />
+          ) : isSymbolTableTab ? (
+            <SymbolTableViewer data={active.symbolTableData!} />
           ) : isMarkdown ? (
             <MarkdownViewer content={active.content} />
           ) : (
