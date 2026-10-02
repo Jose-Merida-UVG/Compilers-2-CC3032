@@ -1,0 +1,11 @@
+let x: integer = 1;
+let y: integer = 2;
+x = y;
+y = 99;
+let f: float = 5;
+f = 7;
+let g: float = x;
+x = (y);
+print(x);
+print(f);
+print("fin");
