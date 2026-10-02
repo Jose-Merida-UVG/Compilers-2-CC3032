@@ -1,0 +1,11 @@
+let a: boolean = true;
+let x: integer = 1;
+let y: integer = 2;
+let n1 = !a;
+let n2 = !!a;
+let n3 = !true;
+let n4 = !false;
+let n5 = !(x < y);
+let n6 = !(a && n1);
+let n7 = !a || !n1;
+print(!a);

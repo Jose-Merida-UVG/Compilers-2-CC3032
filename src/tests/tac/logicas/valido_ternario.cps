@@ -1,0 +1,11 @@
+let x: integer = 3;
+let y: integer = 8;
+let a: boolean = true;
+let b: boolean = false;
+let mayor = x > y ? x : y;
+let t2 = a ? 1 : 2;
+let t3 = a && b ? "si" : "no";
+let t4 = x < y ? (a ? 10 : 20) : 30;
+let t5: float = a ? 1 : 2.5;
+let t6 = (x + 1) * (a ? 2 : 3);
+print(a ? "uno" : "dos");
