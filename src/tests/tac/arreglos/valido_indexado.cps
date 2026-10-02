@@ -1,0 +1,11 @@
+let a = [10, 20, 30, 40];
+let i: integer = 1;
+let p = a[0];
+let q = a[i + 1];
+let suma = a[0] + a[1] * a[2];
+a[0] = 99;
+a[i] = a[i] + 1;
+a[i + 1] = a[i] * 2;
+a[3] = a[0] + 5;
+print(a[i]);
+print(p + q + suma);

@@ -4,7 +4,8 @@ Reglas de la gramática que implementa (ver docs/proyecto2/00-contrato.md
 §4.1): variableDeclaration, constantDeclaration, assignment,
 expressionStatement, printStatement, AssignExpr, literalExpr, primaryExpr,
 IdentifierExpr, additiveExpr, multiplicativeExpr, unaryExpr, relationalExpr,
-equalityExpr, logicalOrExpr, logicalAndExpr, TernaryExpr y gen_cond.
+equalityExpr, logicalOrExpr, logicalAndExpr, TernaryExpr, gen_cond,
+arrayLiteral e IndexExpr (más gen_index_load/gen_index_store/gen_len).
 
 Convención: cada visit de expresión devuelve un *operando* (str): una
 variable, un temporal `$tN` o una constante literal. Quien consume un
@@ -36,7 +37,13 @@ Depende solo de la API del contrato: `self.e` (Emitter), `self.expr`,
    vivir en una clase base listada DESPUÉS de los mixins
    (`class TACGenerator(CoreMixin, ..., BaseGen, CompiscriptVisitor)`);
    si se define en `TACGenerator` mismo tapa a la de este mixin.
-6. `visitAssignExpr` y `visitAssignment` no tocan temporales ajenos:
+6. Arreglos: `visitIndexExpr` devuelve solo el operando del ÍNDICE. La
+   cadena `leftHandSide` (Tono) debe hacer, por cada sufijo `[ ]`,
+   `base = self.gen_index_load(base, self.visit(sufijo))`. Para destinos
+   de asignación con llamadas/propiedades antes del último sufijo
+   (`obj.items[i] = v`), este mixin llama a `self.eval_chain(lhs, n)`:
+   Tono lo expone (evalúa `primaryAtom` y los primeros `n` sufijos).
+7. `visitAssignExpr` y `visitAssignment` no tocan temporales ajenos:
    devuelven la variable asignada (no es temporal, `free` es no-op).
 """
 
@@ -47,7 +54,7 @@ from typing import Optional
 
 from CompiscriptParser import CompiscriptParser
 
-from semantic.types import BooleanType, FloatType, IntegerType, StringType, Type
+from semantic.types import ArrayType, BooleanType, FloatType, IntegerType, StringType, Type
 
 _INT_LITERAL = re.compile(r"-?\d+")
 _NUM_LITERAL = re.compile(r"-?\d+(\.\d+)?")
@@ -165,18 +172,57 @@ class CoreMixin:
         return None
 
     def visitAssignExpr(self, ctx: CompiscriptParser.AssignExprContext):
-        # `lhs = rhs` como expresión; aquí solo el caso de identificador
-        # simple. Devuelve la variable asignada (no es temporal).
+        """`lhs = rhs` como expresión. Tres tipos de destino:
+        `x = v` (variable), `a[i] = v` (arreglo) y `o.f = v` (campo).
+        Devuelve el valor asignado (el llamador libera si es temporal)."""
         lhs = ctx.lhs
+        suffixes = lhs.suffixOp()
+        if not suffixes:
+            value = self.expr(ctx.assignmentExpr())
+            name = self._ident(lhs, lhs.primaryAtom().getText())
+            symbol = self.symbol_of(lhs)
+            value = self._coerce(
+                value,
+                self.type_of(ctx.assignmentExpr()),
+                symbol.type if symbol is not None else None,
+            )
+            self.e.emit(f"{name} = {value}")
+            self.e.free(value)
+            return name  # variable, no temporal
+
+        # Primero el destino (base e índice), luego el valor: así
+        # `a[f()] = g()` evalúa en el orden en que se lee.
+        last = suffixes[-1]
+        base = self._eval_prefix(lhs, len(suffixes) - 1)
+        if isinstance(last, CompiscriptParser.IndexExprContext):
+            index = self.visit(last)
+            value = self._rhs_for(ctx, lhs)
+            self.gen_index_store(base, index, value)
+            return value
+        if isinstance(last, CompiscriptParser.PropertyAccessExprContext):
+            value = self._rhs_for(ctx, lhs)
+            self.e.emit(f"{base}.{last.Identifier().getText()} = {value}")
+            self.e.free(base)
+            return value
+        raise NotImplementedError("el destino de una asignación no puede ser una llamada")
+
+    def _rhs_for(self, ctx, lhs) -> str:
+        """Valor de la derecha, promovido al tipo del destino."""
         value = self.expr(ctx.assignmentExpr())
-        name = self._ident(lhs, lhs.primaryAtom().getText())
-        symbol = self.symbol_of(lhs)
-        value = self._coerce(
-            value, self.type_of(ctx.assignmentExpr()), symbol.type if symbol is not None else None
-        )
-        self.e.emit(f"{name} = {value}")
-        self.e.free(value)
-        return name
+        return self._coerce(value, self.type_of(ctx.assignmentExpr()), self.type_of(lhs))
+
+    def _eval_prefix(self, lhs, count: int) -> str:
+        """Valor de `primaryAtom` más los primeros `count` sufijos de una
+        cadena. Si son todos índices (`m[i][j]`) se resuelve aquí; si hay
+        llamadas o propiedades en medio se delega en `eval_chain` (Tono,
+        dueño de la cadena `leftHandSide`)."""
+        prefix = lhs.suffixOp()[:count]
+        if all(isinstance(sf, CompiscriptParser.IndexExprContext) for sf in prefix):
+            base = self.visit(lhs.primaryAtom())
+            for sf in prefix:
+                base = self.gen_index_load(base, self.visit(sf))
+            return base
+        return self.eval_chain(lhs, count)
 
     def visitExpressionStatement(self, ctx: CompiscriptParser.ExpressionStatementContext):
         # El valor se descarta; una expresión de tipo void devuelve None.
@@ -423,3 +469,48 @@ class CoreMixin:
             self._jump_to(f"if {value} goto", ltrue)
             self._jump(lfalse, fall)
         return None
+
+    # ── Arreglos ────────────────────────────────────────────────────────
+    def visitArrayLiteral(self, ctx: CompiscriptParser.ArrayLiteralContext):
+        """`[e0, e1, ...]` -> `t = newarray n` y un `t[i] = ei` por
+        elemento. El temporal del arreglo vive mientras se evalúan los
+        elementos; cada elemento se promueve al tipo del arreglo
+        (`[1, 2.5]` es float[])."""
+        elements = ctx.expression()
+        array_type = self.type_of(ctx)
+        element_type = array_type.element if isinstance(array_type, ArrayType) else None
+        t = self.e.new_temp()
+        self.e.emit(f"{t} = newarray {len(elements)}")
+        for i, element in enumerate(elements):
+            value = self.expr(element)
+            value = self._coerce(value, self.type_of(element), element_type)
+            self.e.emit(f"{t}[{i}] = {value}")
+            self.e.free(value)
+        return t
+
+    def visitIndexExpr(self, ctx: CompiscriptParser.IndexExprContext):
+        # Solo evalúa el índice. La cadena `leftHandSide` (Tono) lleva la
+        # base y llama a `gen_index_load(base, indice)`.
+        return self.expr(ctx.expression())
+
+    def gen_index_load(self, base: str, index: str) -> str:
+        """`t = base[index]`; libera base e índice antes de pedir `t`."""
+        self.e.free(base)
+        self.e.free(index)
+        t = self.e.new_temp()
+        self.e.emit(f"{t} = {base}[{index}]")
+        return t
+
+    def gen_index_store(self, base: str, index: str, value: str) -> None:
+        """`base[index] = value`; libera base e índice, NO el valor (es el
+        resultado de la asignación y lo libera quien lo consuma)."""
+        self.e.emit(f"{base}[{index}] = {value}")
+        self.e.free(base)
+        self.e.free(index)
+
+    def gen_len(self, array: str) -> str:
+        """`t = len array` (lo usa foreach)."""
+        self.e.free(array)
+        t = self.e.new_temp()
+        self.e.emit(f"{t} = len {array}")
+        return t
