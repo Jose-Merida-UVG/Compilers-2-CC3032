@@ -22,7 +22,7 @@ from CompiscriptParser import CompiscriptParser
 from CompiscriptVisitor import CompiscriptVisitor
 
 from semantic.errors import SemanticErrorList
-from semantic.symbols import ScopeKind, Symbol, SymbolKind, SymbolTable
+from semantic.symbols import Scope, ScopeKind, Symbol, SymbolKind, SymbolTable
 from semantic.types import (
     ArrayType,
     BooleanType,
@@ -47,6 +47,11 @@ class SemanticChecker(CompiscriptVisitor):
         # Init symbol table + error list
         self.symbols = SymbolTable()
         self.errors = SemanticErrorList()
+        # Anotaciones para el generador TAC, indexadas por id(ctx).
+        self.node_types: dict[int, Type] = {}
+        self.node_symbols: dict[int, Symbol] = {}
+        self.node_scopes: dict[int, Scope] = {}
+        self.node_inner_scopes: dict[int, Scope] = {}
 
         # Additional data structure to track scope
         self._function_return_stack: list[Type] = []
