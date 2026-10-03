@@ -187,6 +187,8 @@ class SemanticChecker(CompiscriptVisitor):
         )
         if not self.symbols.declare(symbol):
             self._error(ctx, f"la variable '{name}' ya fue declarada en este ámbito")
+        else:
+            self.node_symbols[id(ctx)] = symbol
 
         # Declared *before* walking the initializer: `let x = x + 1;`
         # resolves the rhs `x` to this new declaration rather than
@@ -233,6 +235,8 @@ class SemanticChecker(CompiscriptVisitor):
         )
         if not self.symbols.declare(symbol):
             self._error(ctx, f"la clase '{class_name}' ya fue declarada en este ámbito")
+        else:
+            self.node_symbols[id(ctx)] = symbol
 
         # New scope for the class body: this is what makes members declare
         # into their own namespace instead of leaking into whatever scope
@@ -271,6 +275,7 @@ class SemanticChecker(CompiscriptVisitor):
             # whatever expression contains this identifier (see
             # types.py's ErrorType docstring).
             return ErrorType()
+        self.node_symbols[id(ctx)] = symbol
         return symbol.type
 
     def visitAssignment(self, ctx: CompiscriptParser.AssignmentContext):
@@ -292,6 +297,8 @@ class SemanticChecker(CompiscriptVisitor):
             # Plain form: Identifier '=' expression ';'
             name = ctx.Identifier().getText()
             symbol = self.symbols.resolve(name)
+            if symbol is not None:
+                self.node_symbols[id(ctx)] = symbol
             rhs_type = self._visit_type(exprs[0])
 
             if symbol is None:
@@ -348,15 +355,15 @@ class SemanticChecker(CompiscriptVisitor):
         # work in a foreach body like in any other loop.
         self.symbols.enter_scope(ScopeKind.BLOCK)
         try:
-            self.symbols.declare(
-                Symbol(
-                    name=name,
-                    kind=SymbolKind.VARIABLE,
-                    type=element_type,
-                    line=ctx.start.line,
-                    column=ctx.start.column,
-                )
+            symbol = Symbol(
+                name=name,
+                kind=SymbolKind.VARIABLE,
+                type=element_type,
+                line=ctx.start.line,
+                column=ctx.start.column,
             )
+            if self.symbols.declare(symbol):
+                self.node_symbols[id(ctx)] = symbol
             self._loop_depth += 1
             try:
                 return self.visit(ctx.block())
@@ -375,15 +382,15 @@ class SemanticChecker(CompiscriptVisitor):
         self.visit(ctx.block(0))
         self.symbols.enter_scope(ScopeKind.BLOCK)
         try:
-            self.symbols.declare(
-                Symbol(
-                    name=ctx.Identifier().getText(),
-                    kind=SymbolKind.VARIABLE,
-                    type=StringType(),
-                    line=ctx.start.line,
-                    column=ctx.start.column,
-                )
+            symbol = Symbol(
+                name=ctx.Identifier().getText(),
+                kind=SymbolKind.VARIABLE,
+                type=StringType(),
+                line=ctx.start.line,
+                column=ctx.start.column,
             )
+            if self.symbols.declare(symbol):
+                self.node_symbols[id(ctx)] = symbol
             self.visit(ctx.block(1))
         finally:
             self.symbols.exit_scope()
@@ -495,6 +502,8 @@ class SemanticChecker(CompiscriptVisitor):
         )
         if not self.symbols.declare(symbol):
             self._error(ctx, f"'{name}' ya fue declarada en este ámbito")
+        else:
+            self.node_symbols[id(ctx)] = symbol
         return None
 
     def visitAdditiveExpr(self, ctx: CompiscriptParser.AdditiveExprContext):
@@ -706,6 +715,7 @@ class SemanticChecker(CompiscriptVisitor):
             if symbol is None:
                 self._error(lhs_ctx, f"la variable '{name}' no ha sido declarada")
                 return None, ErrorType()
+            self.node_symbols[id(lhs_ctx)] = symbol
             if symbol.kind is SymbolKind.CONSTANT:
                 self._error(lhs_ctx, f"no se puede reasignar la constante '{name}'")
                 return None, ErrorType()
@@ -782,11 +792,18 @@ class SemanticChecker(CompiscriptVisitor):
                 ctx,
                 f"la función '{name}' ya fue declarada en este ámbito (no se soporta sobrecarga)",
             )
+        else:
+            self.node_symbols[id(ctx)] = symbol
 
         self.symbols.enter_scope(ScopeKind.FUNCTION, owner=name)
         self._function_return_stack.append(return_type)
         try:
-            for param_name, param_type in zip(param_names, param_types):
+            parameter_nodes = (
+                ctx.parameters().parameter() if ctx.parameters() else []
+            )
+            for param_ctx, param_name, param_type in zip(
+                parameter_nodes, param_names, param_types
+            ):
                 param_symbol = Symbol(
                     name=param_name,
                     kind=SymbolKind.PARAMETER,
@@ -796,6 +813,8 @@ class SemanticChecker(CompiscriptVisitor):
                 )
                 if not self.symbols.declare(param_symbol):
                     self._error(ctx, f"el parámetro '{param_name}' está duplicado")
+                else:
+                    self.node_symbols[id(param_ctx)] = param_symbol
             # Nested functions (closures): visiting the block here means a
             # `function` declared inside this body runs this same method
             # again, declaring the inner function into *this* FUNCTION
@@ -1071,6 +1090,7 @@ class SemanticChecker(CompiscriptVisitor):
                 ctx, f"la clase '{target_type.class_name}' no tiene un miembro '{name}'"
             )
             return ErrorType()
+        self.node_symbols[id(ctx)] = member
         return member.type
 
     def _check_property_assignment(
@@ -1106,6 +1126,7 @@ class SemanticChecker(CompiscriptVisitor):
                 f"no se puede asignar un valor de tipo {value_type} a '{name}', de tipo {member.type}",
             )
             return ErrorType()
+        self.node_symbols[id(ctx)] = member
         return member.type
 
     def visitPropertyAssignExpr(self, ctx: CompiscriptParser.PropertyAssignExprContext):
@@ -1125,6 +1146,7 @@ class SemanticChecker(CompiscriptVisitor):
             self._error(ctx, f"la clase '{class_name}' no ha sido declarada")
             return ErrorType()
 
+        self.node_symbols[id(ctx)] = symbol
         class_type = symbol.type
         assert isinstance(class_type, ClassType)
 
