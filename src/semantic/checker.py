@@ -343,8 +343,28 @@ class SemanticChecker(CompiscriptVisitor):
             self.symbols.exit_scope()
 
     def visitTryCatchStatement(self, ctx: CompiscriptParser.TryCatchStatementContext):
-        # OUT OF SCOPE (team decision)
-        return self.visitChildren(ctx)
+        # 'try' block 'catch' '(' Identifier ')' block
+        # The language has no `throw` and no exception types, so the
+        # caught value is typed as string (the spec's own example does
+        # `"Error atrapado: " + err`). It lives in its own BLOCK scope,
+        # visible only inside the handler: before this, `err` was never
+        # declared and any use of it was reported as an undeclared variable.
+        self.visit(ctx.block(0))
+        self.symbols.enter_scope(ScopeKind.BLOCK)
+        try:
+            self.symbols.declare(
+                Symbol(
+                    name=ctx.Identifier().getText(),
+                    kind=SymbolKind.VARIABLE,
+                    type=StringType(),
+                    line=ctx.start.line,
+                    column=ctx.start.column,
+                )
+            )
+            self.visit(ctx.block(1))
+        finally:
+            self.symbols.exit_scope()
+        return None
 
     # ── Sistema de tipos y funciones ────────────────────────────────────
     #
