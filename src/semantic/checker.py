@@ -139,6 +139,7 @@ class SemanticChecker(CompiscriptVisitor):
         # a bad block never leaves the scope stack unbalanced for the rest
         # of the walk (see SymbolTable.exit_scope's docstring).
         self.symbols.enter_scope(ScopeKind.BLOCK)
+        self.node_inner_scopes[id(ctx)] = self.symbols.current
         try:
             # "código muerto" -- once a return/break/continue
             # is visited, every statement after it in this same block can
@@ -242,6 +243,7 @@ class SemanticChecker(CompiscriptVisitor):
         # into their own namespace instead of leaking into whatever scope
         # contains the class declaration.
         self.symbols.enter_scope(ScopeKind.CLASS, owner=class_name)
+        self.node_inner_scopes[id(ctx)] = self.symbols.current
         self._class_stack.append(class_type)
         # Point the ClassType at the *same* dict object backing
         # this scope (not a copy) -- '.' access / `new` / inherited-member
@@ -354,6 +356,7 @@ class SemanticChecker(CompiscriptVisitor):
         # The loop-depth counter is bumped below too, so break/continue
         # work in a foreach body like in any other loop.
         self.symbols.enter_scope(ScopeKind.BLOCK)
+        self.node_inner_scopes[id(ctx)] = self.symbols.current
         try:
             symbol = Symbol(
                 name=name,
@@ -381,6 +384,7 @@ class SemanticChecker(CompiscriptVisitor):
         # declared and any use of it was reported as an undeclared variable.
         self.visit(ctx.block(0))
         self.symbols.enter_scope(ScopeKind.BLOCK)
+        self.node_inner_scopes[id(ctx)] = self.symbols.current
         try:
             symbol = Symbol(
                 name=ctx.Identifier().getText(),
@@ -796,6 +800,7 @@ class SemanticChecker(CompiscriptVisitor):
             self.node_symbols[id(ctx)] = symbol
 
         self.symbols.enter_scope(ScopeKind.FUNCTION, owner=name)
+        self.node_inner_scopes[id(ctx)] = self.symbols.current
         self._function_return_stack.append(return_type)
         try:
             parameter_nodes = (
@@ -981,6 +986,7 @@ class SemanticChecker(CompiscriptVisitor):
         # `variableDeclaration` init clause (`for (let i = 0; ...)`) is
         # scoped to the loop, not leaked into whatever contains it.
         self.symbols.enter_scope(ScopeKind.BLOCK)
+        self.node_inner_scopes[id(ctx)] = self.symbols.current
         try:
             if ctx.variableDeclaration():
                 self.visit(ctx.variableDeclaration())
@@ -1035,6 +1041,7 @@ class SemanticChecker(CompiscriptVisitor):
         # nothing leaks past the closing '}'.
         switch_type = self._visit_type(ctx.expression())
         self.symbols.enter_scope(ScopeKind.BLOCK)
+        self.node_inner_scopes[id(ctx)] = self.symbols.current
         try:
             for case_ctx in ctx.switchCase():
                 case_type = self._visit_type(case_ctx.expression())
