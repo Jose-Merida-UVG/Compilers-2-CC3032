@@ -59,6 +59,24 @@ class SemanticChecker(CompiscriptVisitor):
         self._loop_depth: int = 0
         self._class_stack: list[ClassType] = []
 
+    def visit(self, tree):
+        """Guarda el ámbito de entrada y el tipo obtenido para cada nodo."""
+        self.node_scopes[id(tree)] = self.symbols.current
+        result = super().visit(tree)
+        if isinstance(result, Type):
+            self.node_types[id(tree)] = result
+        return result
+
+    def visitChildren(self, node):
+        """Hace que los hijos también pasen por nuestro visit()."""
+        result = self.defaultResult()
+        for child in node.getChildren():
+            if not self.shouldVisitNextChild(node, result):
+                break
+            child_result = self.visit(child)
+            result = self.aggregateResult(result, child_result)
+        return result
+
     def check(self, tree: Ctx) -> SemanticErrorList:
         self.visit(tree)
         return self.errors
