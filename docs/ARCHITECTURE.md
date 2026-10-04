@@ -515,11 +515,8 @@ La batería real (la que corre `make test` vía `pytest`) vive en
 / `invalido_<regla>.cps` descubierta por glob desde
 `test_<categoria>.py`; agregar un caso nuevo es agregar un `.cps`. Además
 hay pruebas de regresión (`src/tests/test_smoke.py`) que corren cada
-muestra por el pipeline completo. Aparte de esa batería "oficial", el área
-de trabajo del IDE (`workspace/input/comp-semantico/`) tiene un segundo
-set de archivos por categoría (`1-tipos-*.cps` ... `7-generales-*.cps`,
-más `8-tabla-simbolos-valido.cps` y `comp-tabla-simbolos/demo-tabla.cps`)
-pensado como demos manuales dentro del IDE, con los mismos temas.
+muestra por el pipeline completo. Las demostraciones manuales del IDE están
+en `workspace/input/comp-tac/`.
 
 | Carpeta (`src/tests/semantic/`) | Casos | Cubre |
 |---|---|---|
@@ -575,9 +572,7 @@ bucle (`invalido_break_fuera_de_bucle.cps`,
 `invalido_continue_fuera_de_bucle.cps`), `return` fuera de función
 (`invalido_return_fuera_de_funcion.cps`). **`switch`/`case` no tenía
 ningún caso de prueba en la batería oficial** — la regla está implementada
-en `checker.py` (ver §6.3) y sí se usaba en los archivos de demostración
-del IDE (`workspace/input/comp-semantico/4-control-flujo-*.cps`), pero
-esos no corren con `pytest`. Se agregaron
+en `checker.py` (ver §6.3). Se agregaron
 `control_flujo/valido_switch.cps` e
 `control_flujo/invalido_switch_case_incompatible.cps` para cerrarlo.
 

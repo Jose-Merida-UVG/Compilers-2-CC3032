@@ -79,7 +79,7 @@ make cli FILE=<path-to-source-file>
 e.g.:
 
 ```
-make cli FILE=workspace/input/comp-baja/baja-val.cps
+make cli FILE=workspace/input/comp-tac/funciones-valido.cps
 ```
 
 This lexes, parses, and (if there were no lexical/syntax errors) runs
@@ -100,11 +100,8 @@ category (`tipos`, `ambito`, `funciones`, `control_flujo`, `clases`,
 grammar/pipeline regressions. Narrow it down with e.g.
 `make test ARGS="src/tests/semantic/clases -v"`.
 
-Además, `workspace/input/comp-semantico-todo/` tiene dos programas
-integrales para probar el analizador a mano desde el IDE:
-`todo-valido.cps` (ejercita todas las construcciones del lenguaje, debe dar
-cero errores) y `todo-invalido.cps` (un error semántico por cada regla,
-marcado con `[n]` en el comentario de su línea).
+Los programas de demostración del IDE están en `workspace/input/comp-tac/`,
+un `<área>-valido.cps` y un `<área>-invalido.cps` por cada punto de la rúbrica.
 
 ## Web IDE (frontend + backend together)
 
