@@ -38,7 +38,7 @@ export default function TacViewer({ data }: Props) {
           <p>
             El programa tiene {errorCount} {noun}; el TAC solo se genera cuando el análisis
             léxico, sintáctico y semántico no reporta ninguno. Corrige los errores del panel
-            OUTPUT y vuelve a ejecutar.
+            OUTPUT y vuelve a compilar.
           </p>
         </div>
       </div>

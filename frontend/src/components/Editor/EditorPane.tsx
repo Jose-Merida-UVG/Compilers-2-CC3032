@@ -68,7 +68,7 @@ export default function EditorPane({
           <div className="editor-toolbar__actions">
             {isRunnable && (
               <button className="toolbar-pill toolbar-pill--run" onClick={() => onRunFile?.(activeTab!)}>
-                ▶ Run
+                ▶ Compilar
               </button>
             )}
           </div>
@@ -130,7 +130,7 @@ function Welcome() {
       <p className="editor-welcome__sub">Lexical, Syntax &amp; Semantic Analysis · Intermediate Code (TAC)</p>
       <div className="editor-welcome__hints">
         <Hint keys={["Ctrl", "S"]} label="Force save (auto-saves after 200ms)" />
-        <Hint keys={["▶ Run"]} label="Analyze the .cps file: errors, parse tree, symbol table and TAC" />
+        <Hint keys={["▶ Compilar"]} label="Analiza el archivo .cps: errores, árbol sintáctico, tabla de símbolos y TAC" />
       </div>
     </div>
   );

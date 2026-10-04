@@ -128,7 +128,7 @@ export default function App() {
       }
     }
  
-    appendTerminal(`\n▶ Running ${inputPath}`);
+    appendTerminal(`\n▶ Compilando ${inputPath}`);
     try {
       const result = await api.run(inputPath);
       result.lines.forEach((l) => appendTerminal(l));
