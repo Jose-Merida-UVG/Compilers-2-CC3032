@@ -3,6 +3,8 @@ file under src/tests/, regardless of how pytest is invoked (IDE, `make
 test`, bare `pytest`) -- mirrors the PYTHONPATH=src/generated:src that the
 Makefile/README already use for the CLI and server.
 """
+from __future__ import annotations
+
 import os
 import sys
 
