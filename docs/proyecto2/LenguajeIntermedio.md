@@ -185,7 +185,36 @@ a[i] = a[i] + 1;                       $t1 = a[i]
 
 ### 6.5 if / while / do-while / for
 
-Se invierte la condición para ahorrar un `goto`: el cuerpo es la caída natural.
+Cada condición se compila con `gen_cond(cond, ltrue, lfalse, fall)`, donde
+`fall` es la etiqueta que se coloca justo después. Si coincide con una de las
+dos salidas, ese salto se omite y la condición se **invierte** (`<` pasa a
+`>=`): el cuerpo es la caída natural y no sobra ningún `goto`. Una etiqueta que
+ningún salto referencia no se emite.
+
+**`if` / `else`.** Sin `else`, la salida falsa va directo al final. Con `else`, el
+bloque `then` termina con un `goto` al final (salvo que ya acabe en
+`return`/`break`/`continue`). `else if` es un `if` anidado. Una condición con
+`&&`/`||` encadena saltos sin construir un booleano:
+
+```
+if (x < 10) {                          if x >= 10 goto L2
+    print("chico");                    print "chico"
+} else {                               goto L3
+    if (x < 20) {                  L2:
+        print("mediano");              if x >= 20 goto L5
+    } else {                           print "mediano"
+        print("grande");               goto L6
+    }                              L5:
+}                                      print "grande"
+                                   L6:
+                                   L3:
+if (a < b && b < 10) {                 if a >= b goto L8
+    print("rango");                    if b >= 10 goto L8
+}                                      print "rango"
+                                   L8:
+```
+
+**`while`.** Etiqueta de condición, cuerpo y salto de vuelta:
 
 ```
 while (i < 10) {                   L1:
@@ -198,10 +227,47 @@ while (i < 10) {                   L1:
                                    L3:
 ```
 
-`do-while` evalúa la condición al final y salta de vuelta (`continue` salta a la
-condición). `for(init; cond; update)` emite `init`, la etiqueta de condición, el
-cuerpo, la etiqueta de `update` (destino de `continue`), el `update`, el salto
-de vuelta y la etiqueta de salida; `cond` y `update` son opcionales.
+**`do-while`.** El cuerpo va primero; la condición está al final y salta de
+vuelta al inicio cuando es verdadera (la caída es la salida). `continue` salta
+a la etiqueta de la condición, que solo se emite si hay algún `continue`:
+
+```
+do {                               L1:
+    n = n - 1;                         $t1 = n - 1
+    if (n == 5) { continue; }          n = $t1
+    print(n);                          if n != 5 goto L5
+} while (n > 0);                       goto L2
+                                   L5:
+                                       print n
+                                   L2:
+                                       if n > 0 goto L1
+```
+
+**`for`.** Se emite `init`, la etiqueta de inicio, la condición, el cuerpo, la
+etiqueta de `update` (destino de `continue`, solo si hay alguno), el `update`,
+el salto de vuelta y la etiqueta de salida (destino de `break`). `init`, `cond`
+y `update` son opcionales (`for (;;)` es un ciclo sin condición):
+
+```
+for (let i: integer = 0;           i = 0
+     i < 5; i = i + 1) {       L1:
+    if (i == 3) { continue; }      if i >= 5 goto L4
+    if (i > 6) { break; }          if i != 3 goto L6
+    total = total + i;             goto L3
+}                              L6:
+                                   if i <= 6 goto L8
+                                   goto L4
+                               L8:
+                                   $t1 = total + i
+                                   total = $t1
+                               L3:
+                                   $t1 = i + 1
+                                   i = $t1
+                                   goto L1
+                               L4:
+```
+
+`continue` salta a `L3` (el `update`) y `break` a `L4` (la salida).
 
 ### 6.6 foreach
 
@@ -225,9 +291,12 @@ L3:
 
 ### 6.7 switch y break/continue
 
-El valor se evalúa una vez; hay un `if v == c goto Lcase` por cada `case`, luego
-`goto Ldefault` o `goto Lend`. Los cuerpos van en orden y caen de uno al
-siguiente (no hay `break` implícito); `break` salta a la etiqueta de salida.
+El valor del `switch` se evalúa **una sola vez** (queda en un temporal fijado
+que se libera antes de generar los cuerpos). Hay un `if v == c goto Lcase` por
+cada `case`, y después `goto Ldefault` (o `goto Lend` si no hay `default`). Los
+cuerpos van en orden y **cada caso cae en el siguiente**: no existe un `break`
+implícito ni una salida propia del `switch` (el ejemplo de
+`docs/DefinicionCompiscript.md` imprime "uno", "dos" y "otro" para `x = 1`).
 
 ```
 switch (x) {                           if x == 1 goto L1
@@ -241,8 +310,37 @@ switch (x) {                           if x == 1 goto L1
                                        print "otro"
 ```
 
-`break` y `continue` son un `goto` al tope de la pila de etiquetas; un `switch`
-dentro de un ciclo apila y desapila correctamente.
+**`break` y `continue` pertenecen solo a los bucles.** La especificación del
+proyecto los limita a bucles (el analizador semántico rechaza un `break` fuera
+de uno), así que el `switch` **no apila etiquetas**: dentro de un `switch` que
+está en un `while`, `for`, `do-while` o `foreach`, `break` y `continue` se
+refieren a ese bucle, no al `switch`. Cada bucle apila su par
+(`break` → etiqueta de salida, `continue` → etiqueta de continuación) mientras
+genera el cuerpo y lo desapila al terminar; `break`/`continue` son un `goto` al
+tope de esa pila.
+
+```
+while (i < 6) {                    L1:
+    switch (i % 3) {                   if i >= 6 goto L3
+        case 0:                        $t1 = i % 3
+            i = i + 1;                 if $t1 == 0 goto L4
+            continue;                  if $t1 == 1 goto L5
+        case 1:                        goto L6
+            if (i > 3) { break; }  L4:
+        default:                       $t1 = i + 1
+            print(i);                  i = $t1
+    }                                  goto L1       ← continue: al while
+    i = i + 1;                     L5:
+}                                      if i <= 3 goto L9
+                                       goto L3       ← break: sale del while
+                                   L9:
+                                   L6:
+                                       print i
+                                       $t1 = i + 1
+                                       i = $t1
+                                       goto L1
+                                   L3:
+```
 
 ### 6.8 try / catch
 
@@ -422,11 +520,14 @@ Si ni la clase ni sus ancestros declaran `constructor`, `new` solo llama a
 
 ## 8. Reciclaje de temporales
 
-Algoritmo (implementado en `src/tac/emitter.py`):
+Un temporal solo hace falta entre el momento en que se calcula y el momento en
+que se consume. Después queda libre y el siguiente resultado puede ocupar el
+mismo nombre. El algoritmo (implementado en `src/tac/emitter.py`):
 
 1. Cada función (y cada método) tiene su **propio pool** de temporales; se
    reinicia al abrir la unidad.
-2. `new_temp()` devuelve el **menor índice libre**, o crea uno nuevo si no hay.
+2. `new_temp()` devuelve el **menor índice libre**, o crea uno nuevo si no hay
+   (así la numeración es determinista).
 3. Quien **consume** un operando lo libera (`free`) justo después de emitir la
    instrucción que lo usa, y *después* pide el temporal del resultado. Por eso
    `$t1 = $t1 + $t2` reutiliza `$t1`. `free` de una variable o constante no
@@ -438,6 +539,93 @@ Algoritmo (implementado en `src/tac/emitter.py`):
    (detector de fugas); las pruebas lo ejercitan en cada caso.
 6. El **pico** de temporales simultáneos de cada unidad se guarda y alimenta
    `frame.temps` en la tabla de símbolos.
+
+### 8.1 Pseudocódigo
+
+Estado de cada unidad (función, método o `__main`):
+
+```
+libres    ← min-heap vacío        # índices que ya se pueden reutilizar
+vivos     ← conjunto vacío        # índices en uso ahora
+siguiente ← 0                     # mayor índice creado hasta el momento
+pico      ← 0                     # máximo de temporales vivos a la vez
+```
+
+Operaciones del emisor:
+
+```
+new_temp():
+    si libres no está vacío:
+        i ← extraer_mínimo(libres)        # reutiliza el menor índice libre
+    si no:
+        siguiente ← siguiente + 1         # solo crea uno nuevo si no hay libres
+        i ← siguiente
+    vivos ← vivos ∪ {i}
+    pico  ← máx(pico, |vivos|)
+    devolver "$t" + i
+
+free(operando):
+    si operando no tiene la forma "$t<i>":
+        devolver                          # variable o constante: nada que liberar
+    si i ∈ vivos:
+        vivos ← vivos \ {i}
+        insertar(libres, i)
+
+end_unit():
+    si vivos no está vacío:  error "fuga de temporales"
+    max_temps[nombre de la unidad] ← pico
+```
+
+Cómo lo usa cada generador de expresiones (la regla clave es **liberar los
+operandos antes de pedir el temporal del resultado**):
+
+```
+gen_binaria(a OP b):
+    ta ← gen(a)                           # operando izquierdo (variable, constante o $t)
+    tb ← gen(b)
+    free(ta); free(tb)                    # 1) se liberan los operandos…
+    t  ← new_temp()                       # 2) …y el resultado puede ocupar ta o tb
+    emitir(t = ta OP tb)
+    devolver t
+```
+
+### 8.2 Ejemplo comparativo: con y sin reciclaje
+
+Fuente: `let r = (a + b) * (c + d) - (e + f) * (a + c);`
+
+```
+CON reciclaje (3 temporales)           SIN reciclaje (7 temporales)
+$t1 = a + b                            $t1 = a + b
+$t2 = c + d                            $t2 = c + d
+$t1 = $t1 * $t2                        $t3 = $t1 * $t2
+$t2 = e + f                            $t4 = e + f
+$t3 = a + c                            $t5 = a + c
+$t2 = $t2 * $t3                        $t6 = $t4 * $t5
+$t1 = $t1 - $t2                        $t7 = $t3 - $t6
+r = $t1                                r = $t7
+```
+
+Cada resultado intermedio muere en cuanto la operación siguiente lo consume,
+así que `$t1` y `$t2` se reutilizan y solo `$t3` hace falta para la última
+suma. Sin reciclaje cada resultado estrena un temporal nuevo y el total crece
+con el tamaño de la expresión. En una suma encadenada la diferencia es aún
+mayor (`let s = a + b + c + d + e + f;`):
+
+```
+CON reciclaje (1 temporal)             SIN reciclaje (5 temporales)
+$t1 = a + b                            $t1 = a + b
+$t1 = $t1 + c                          $t2 = $t1 + c
+$t1 = $t1 + d                          $t3 = $t2 + d
+$t1 = $t1 + e                          $t4 = $t3 + e
+$t1 = $t1 + f                          $t5 = $t4 + f
+s = $t1                                s = $t5
+```
+
+La columna "sin reciclaje" es salida real del generador con `free()`
+desactivado en el emisor. El número de temporales importa más adelante: el pico
+de cada función es `frame.temps` en la tabla de símbolos (§9), y cada temporal
+ocupa 4 bytes en su registro de activación. Un pico menor da un `frame` más
+pequeño y menos presión de registros en MIPS.
 
 ## 9. Tabla de símbolos para el código objeto
 
@@ -500,6 +688,8 @@ constructor nunca se reporta como sobrescritura):
   nombra tal cual; el TAC no modela el entorno capturado.
 * `try/catch`: el TAC solo marca la región y el manejador; la fase de código
   objeto decide cómo detectar la excepción.
+* `break`/`continue` solo existen dentro de bucles (restricción del enunciado), así
+  que un `switch` no se puede abandonar con `break`: cada caso cae en el siguiente.
 * Una variable declarada sin inicializador no genera instrucción.
 * Si el programa tiene **cualquier** error (léxico, sintáctico o semántico) no
   se genera TAC.

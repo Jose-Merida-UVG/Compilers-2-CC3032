@@ -1,20 +1,25 @@
-# Arquitectura — Analizador Semántico de Compiscript
+# Arquitectura — Compilador de Compiscript (análisis y código intermedio)
 
-Documento único de arquitectura para el Proyecto 1 (Análisis Semántico) de
-Compiladores 2 (CC3032). Consolida la división de trabajo, el diseño interno
-de `src/semantic/` y el estado de la batería de pruebas frente al
-enunciado (`docs/SemanticAnalysis.md`).
+Documento único de arquitectura para el Proyecto 1 (Análisis Semántico) y el
+Proyecto 2 (Generación de código intermedio) de Compiladores 2 (CC3032).
+Consolida la división de trabajo, el diseño interno de `src/semantic/` y de
+`src/tac/`, y el estado de la batería de pruebas frente a los enunciados
+(`docs/SemanticAnalysis.md` para el P1; el lenguaje intermedio está
+especificado en [`docs/proyecto2/LenguajeIntermedio.md`](proyecto2/LenguajeIntermedio.md)).
+Las secciones 3 a 11 describen el analizador semántico (P1); la sección 12
+describe la generación de código intermedio (P2).
 
 ---
 
 ## 1. Panorama general
 
 El compilador se construye por fases acumulativas (Aho et al., 2006):
-léxico → sintáctico → semántico → (futuro: código intermedio y MIPS). Este
-proyecto parte del analizador léxico/sintáctico de un laboratorio previo
-del curso, hecho con ANTLR4, y le agrega el análisis semántico completo:
-sistema de tipos, tabla de símbolos y validación de todas las reglas del
-enunciado, integrado en un IDE web.
+léxico → sintáctico → semántico → código intermedio (→ futuro: código
+objeto MIPS). El proyecto parte del analizador léxico/sintáctico de un
+laboratorio previo del curso, hecho con ANTLR4. El P1 le agregó el análisis
+semántico completo (sistema de tipos, tabla de símbolos y validación de todas
+las reglas del enunciado) y el P2 le agrega la generación de **código de tres
+direcciones (TAC)**; todo integrado en un IDE web.
 
 ```
 código fuente
@@ -25,17 +30,27 @@ tokens
    ▼
 árbol
    │  SemanticChecker             árbol → errores + tabla de símbolos
+   │                              + anotaciones por nodo (tipo, símbolo, ámbito)
    ▼
-errores[]  +  árbol de ámbitos
+errores[]  +  árbol de ámbitos  +  anotaciones
+   │  si errores == [] ──────────────────────────────┐
+   │                                                 ▼
+   │                                      TACGenerator (src/tac/)
+   │                                      árbol anotado → TAC (texto)
+   │                                                 │
+   │  semantic/layout.py  ◄── picos de temporales ───┘
+   ▼        tamaños, offsets, direcciones, registros de activación
+errores[] + TAC (o None) + tabla de símbolos completa
 ```
 
-`src/compiler.py` orquesta las tres etapas y es el único lugar que conoce
+`src/compiler.py` orquesta las etapas y es el único lugar que conoce
 el pipeline completo; tanto el CLI (`main.py`) como el servidor
 (`server.py`) pasan por ahí para no divergir. **El análisis semántico solo
 corre si no hubo errores léxicos ni sintácticos**: ANTLR se recupera de
 errores de sintaxis inventando y saltando tokens, así que recorrer ese
 árbol dañado produciría una avalancha de errores semánticos falsos encima
-del error real.
+del error real. **El TAC solo se genera si no hubo ningún error** (léxico,
+sintáctico o semántico): `analyze()` devuelve `tac = None` en cuanto hay uno.
 
 La única modificación hecha a la gramática heredada fue agregar el tipo
 `float` (no estaba en la gramática oficial del laboratorio, pero el
@@ -53,16 +68,19 @@ sintácticas existentes.
 | `src/semantic/types.py` | Jerarquía de tipos y reglas de asignabilidad. |
 | `src/semantic/symbols.py` | `Symbol`, `Scope`, `SymbolTable`. |
 | `src/semantic/errors.py` | `SemanticError` y su lista acumulada. |
-| `src/semantic/checker.py` | `SemanticChecker`: el recorrido y todas las reglas. |
-| `src/compiler.py` | Pipeline compartido (léxico + sintáctico + semántico). |
-| `src/server.py` + `frontend/` | IDE: endpoint `/api/run` y paneles de errores, árbol y tabla de símbolos. |
+| `src/semantic/checker.py` | `SemanticChecker`: el recorrido y todas las reglas; además anota cada nodo con su tipo, símbolo y ámbito para el generador de TAC. |
+| `src/semantic/layout.py` | Tamaños, offsets, direcciones, registros de activación y layout de clases sobre el árbol de ámbitos (§12.5). |
+| `src/tac/` | Generación de código intermedio: `generator.py`, `gen_core.py`, `gen_control.py`, `gen_functions.py`, `gen_classes.py`, `emitter.py`, `instructions.py` (§12). |
+| `src/compiler.py` | Pipeline compartido (léxico + sintáctico + semántico + TAC + layout). |
+| `src/server.py` + `frontend/` | IDE: endpoint `/api/run` y paneles de errores, árbol, tabla de símbolos y TAC. |
+| `docs/proyecto2/LenguajeIntermedio.md` | Especificación del lenguaje intermedio: instrucciones, decisiones de diseño, ejemplos fuente → TAC y reciclaje de temporales. |
 
 ### Herramientas
 
 - **ANTLR4 4.13.2**: genera lexer, parser y las clases base
   Listener/Visitor desde `src/grammar/Compiscript.g4`. Se usó el patrón
   **Visitor** para el recorrido semántico (ver §4.1).
-- **Python 3.9** + `antlr4-python3-runtime` para el analizador semántico.
+- **Python 3.9** + `antlr4-python3-runtime` para el analizador semántico y el generador de TAC.
 - **FastAPI + Uvicorn** para exponer el analizador como servicio HTTP
   local.
 - **React + TypeScript + Vite + Monaco Editor** (el motor de VS Code)
@@ -90,6 +108,20 @@ Esta separación en capas deja `checker.py` como el único punto real de
 integración entre las tres áreas: cada quien agrega sus propios métodos
 `visitXxx`, y la única coordinación necesaria es sobre las estructuras
 compartidas de `types.py` y `symbols.py`, acordadas en la fase conjunta.
+
+### División de trabajo del Proyecto 2 (código intermedio)
+
+El generador se escribió como **un visitor aparte** (`TACGenerator`) compuesto
+por cuatro *mixins*, y cada regla de la gramática tiene un solo dueño: así cada
+integrante trabaja en archivos distintos sin pisarse. Un contrato común
+(formato del TAC y API del emisor) permitió avanzar en paralelo. La referencia
+final siguen siendo los commits individuales; este es el resumen:
+
+| Integrante | Rúbrica P2 | Código principal |
+|---|---|---|
+| Camila Richter (`Cami`) | diseño del TAC (3), reciclaje de temporales (3), GUI | anotaciones del checker (`node_types`, `node_symbols`, `node_scopes`), `emitter.py` (pool de temporales), `instructions.py`, `generator.py`, helper de pruebas; en el IDE: visor de TAC, errores navegables, "Compilar", offsets en la tabla de símbolos |
+| Marinés García (`NESHGP04`) | declaraciones (1), aritmética (1), lógicas (1), arreglos (1), control de flujo (3), try/catch (2) | `gen_core.py` (`CoreMixin`: declaraciones, expresiones, `gen_cond` con cortocircuito, arreglos) y `gen_control.py` (`ControlMixin`: if, bucles, switch, break/continue, try/catch); declaración de la variable del `catch` y retorno en `try/catch` en el checker |
+| Jose Antonio Mérida (`TonitoMC`) | funciones (2), recursividad (2), clases (2), herencia (2), tabla de símbolos (2) | `gen_functions.py` (`FunctionMixin`), `gen_classes.py` (`ClassMixin`, incluida la cadena `leftHandSide`), `layout.py`; integración del TAC en `compiler.py`/`server.py`/CLI; `LenguajeIntermedio.md`; pruebas de invariantes y de cobertura de la rúbrica |
 
 ## 3. Sistema de tipos (`types.py`)
 
@@ -148,8 +180,9 @@ directo).
 `CONSTANT`, `PARAMETER`, `FUNCTION`, `CLASS`) responde una pregunta
 distinta a `type`: `let x: integer` y `const K: integer` tienen el mismo
 tipo y distinto kind, y esa diferencia es la que permite rechazar la
-reasignación de una constante. `address` queda reservado, sin usar, para
-las fases de TAC/MIPS.
+reasignación de una constante. El checker no toca `size`, `offset`,
+`address`, `label` ni `tac_name`: los completa `semantic/layout.py` después de
+generar el TAC (§12.5).
 
 **`Scope`**: un diccionario `nombre → Symbol`, un puntero `parent` y una
 lista `children`. Las dos direcciones importan y son distintas:
@@ -168,8 +201,8 @@ lista `children`. Las dos direcciones importan y son distintas:
   (transitoria) como a `children` del scope padre (permanente); `exit_scope`
   solo desapila. Al terminar el recorrido completo, el árbol entero sigue
   colgando de `global_scope`, aunque la pila ya esté vacía. De ese árbol
-  salen el panel de símbolos del IDE (`Scope.to_dict()`) y lo que
-  reutilizarán las fases de TAC y MIPS.
+  salen el panel de símbolos del IDE (`Scope.to_dict()`) y el layout
+  de memoria de la fase de TAC (y, más adelante, de MIPS).
 
 `resolve_local` (busca solo en el ámbito actual, sin subir) existe para dos
 casos: **redeclaración** (`let x` dos veces en el mismo bloque es error,
@@ -331,7 +364,7 @@ numéricos. Igualdad: tipos compatibles en cualquier dirección. Ternario:
 condición `boolean`, ramas compatibles, resultado el tipo más general.
 Una constante no puede reasignarse (el `Symbol.kind` lo distingue de una
 variable). Una función no-`void` debe retornar en todos sus caminos
-(`_always_returns`, con las limitaciones descritas en §8). La asignación
+(`_always_returns`, con las limitaciones descritas en §11). La asignación
 está implementada en dos métodos porque la gramática la parte en dos:
 `x = 5;` es la sentencia `assignment`, pero `arr[0] = 5;` no matchea
 ninguna de sus alternativas y cae en `expressionStatement →
@@ -491,22 +524,32 @@ error por bloque inalcanzable, no uno por instrucción.
 
 ## 8. Integración con el IDE
 
-`compiler.analyze()` devuelve `errors`, `status_message`, `tree_json` y
-`symbol_table_json`. Este último es `None` (no un diccionario vacío)
+`compiler.analyze()` devuelve `errors`, `status_message`, `tree_json`,
+`symbol_table_json`, `tac` y `tac_stats`. `symbol_table_json` es `None` (no un diccionario vacío)
 cuando el análisis semántico no llegó a correr, para que el frontend
-distinga "no hay símbolos" de "no se llegó hasta ahí". `server.py` lo
-expone en `/api/run`; el frontend consume esa respuesta con:
+distinga "no hay símbolos" de "no se llegó hasta ahí"; igual `tac` (lista de
+líneas) y `tac_stats` (`instructions`, `temps`, `functions`) son `None` con
+cualquier error. `server.py` los expone en `/api/run` (como `tac` y `tacStats`)
+y guarda `workspace/output/<archivo>/<archivo>.tac` (borrando el de una corrida
+anterior si ahora hay errores); el frontend consume esa respuesta con:
 
 - **Explorador de archivos**: panel lateral con el árbol del área de
   trabajo, mecanismo de selección del archivo de entrada.
 - **Editor Monaco**: con resaltado de sintaxis propio para Compiscript.
 - **Panel de salida**: cada error (léxico, sintáctico o semántico)
-  encontrado, más el mensaje final de estado.
+  encontrado, más el mensaje final de estado; cada error es navegable (un clic
+  salta a su línea en el editor). El botón de acción dice **▶ Compilar**.
 - **Visor de árbol de derivación**: representación visual y colapsable
   del árbol de parseo.
 - **Visor de tabla de símbolos**: cada ámbito (global, función, clase,
   bloque) anidado en árbol, recorriendo `Scope.to_dict()`, con sus
-  símbolos, tipo y ubicación.
+  símbolos, tipo y ubicación; con el TAC generado muestra además tamaño,
+  offset y dirección de cada símbolo, el registro de activación de cada función
+  y el layout de cada clase.
+- **Visor de TAC**: pestaña de solo lectura con numeración de líneas, resaltado
+  de etiquetas, saltos, temporales y `func`/`endfunc`, y botón para copiar. Con
+  errores la pestaña no se abre y se avisa que no se generó código
+  intermedio.
 
 ## 9. Pruebas y validación
 
@@ -517,6 +560,8 @@ La batería real (la que corre `make test` vía `pytest`) vive en
 hay pruebas de regresión (`src/tests/test_smoke.py`) que corren cada
 muestra por el pipeline completo. Las demostraciones manuales del IDE están
 en `workspace/input/comp-tac/`.
+
+Las pruebas del P2 viven en `src/tests/tac/<área>/` (ver §12.7). Las del P1:
 
 | Carpeta (`src/tests/semantic/`) | Casos | Cubre |
 |---|---|---|
@@ -630,7 +675,9 @@ allá de la inspección visual.
 | `[]` vacío | Entra en cualquier arreglo, pero no estrecha el símbolo permanentemente |
 | Índices de arreglo | Solo se valida el **tipo** del índice; el tamaño no se conoce estáticamente |
 | `new` con argumentos inválidos | Devuelve igual el `ClassType`, para no cascadear el error |
-| `try`/`catch` | Fuera de alcance por decisión de equipo; el método existe como passthrough explícito |
+| `try`/`catch` | En el P1 solo se recorría sin validar. Con el P2 se declara la variable del `catch` (tipo `string`, visible solo en el manejador) y un `try`/`catch` cuenta como retorno garantizado si ambos bloques retornan |
+| `break`/`continue` | Solo dentro de bucles (restricción del enunciado); un `switch` no es destino de `break` |
+| Formato del código intermedio | TAC en texto estilo *Dragon Book*, una línea por instrucción; ver §12 y `docs/proyecto2/LenguajeIntermedio.md` |
 | Idioma de los mensajes | Español, con línea y columna, mismo estilo en las tres fases |
 | Declarar antes de visitar el inicializador | `let x = x + 1;` resuelve la `x` del lado derecho a la nueva declaración en vez de reportar "no declarada" — comportamiento reconocido, no un caso resuelto de forma definitiva |
 
@@ -652,15 +699,109 @@ allá de la inspección visual.
 - **El análisis de retorno garantizado es conservador.**
   `_always_returns` solo reconoce las formas que la gramática garantiza
   estáticamente: un `return`, un bloque que contiene uno, y un `if`/`else`
-  donde ambas ramas retornan. Un bucle nunca cuenta (su cuerpo puede
+  (o `try`/`catch`) donde ambas ramas retornan. Un bucle nunca cuenta (su cuerpo puede
   ejecutarse cero veces), así que `while (true) { return 1; }` se reporta
   como "no garantiza retorno" aunque en la práctica siempre retorne.
 - **No se valida la sobreescritura de métodos** en una subclase.
 - **`ClassType.__eq__` compara solo por nombre**, así que dos clases
   homónimas declaradas en ámbitos distintos se tratarían como el mismo
   tipo.
+- **Generación de TAC (P2):** sin despacho dinámico (los métodos se resuelven
+  por el tipo estático, no hay vtable); una función anidada que usa variables
+  de la contenedora las nombra tal cual (el TAC no modela el entorno
+  capturado); el TAC solo marca la región de un `try` (no hay `throw` en el
+  lenguaje); una variable sin inicializador no genera instrucción. Ver
+  `docs/proyecto2/LenguajeIntermedio.md` §10.
 
-## 12. Conclusiones
+## 12. Generación de código intermedio (TAC) — Proyecto 2
+
+La especificación del lenguaje intermedio (instrucciones, convenciones,
+justificación de cada decisión, un ejemplo fuente → TAC por construcción y el
+algoritmo de reciclaje) está en
+[`docs/proyecto2/LenguajeIntermedio.md`](proyecto2/LenguajeIntermedio.md). Esta
+sección describe cómo está organizado el código que lo genera.
+
+### 12.1 Dónde encaja y cuándo se ejecuta
+
+`compiler.analyze()` corre el `TACGenerator` sobre el mismo árbol, **solo si el
+checker terminó con cero errores**, y después `layout.assign_layout()` con los
+picos de temporales del emisor. Cualquier excepción del generador se reporta
+como error interno en vez de tumbar el IDE, y en ese caso tampoco hay TAC. El
+TAC es solo texto: el compilador no lo ejecuta ni produce código objeto.
+
+### 12.2 Organización de `src/tac/`
+
+| Archivo | Rol |
+|---|---|
+| `instructions.py` | Convenciones de formato: sangría, prefijos `$t` y `L`, nombre `__main`, cabeceras de `func`/`class`, instrucción `call`. |
+| `emitter.py` | `Emitter`: emite líneas, crea etiquetas únicas, **pool de temporales por unidad** (reciclaje), pila de unidades (`func`/`class`), detector de fugas y pico de temporales (`max_temps`). Renderiza el TAC con las funciones primero y `__main` al final. |
+| `generator.py` | `TACGenerator`: une los cuatro mixins y ofrece `expr`, `type_of`, `symbol_of`, `scope_of`, `name_of` (nombres únicos por unidad: `x`, `x_1`…). |
+| `gen_core.py` | `CoreMixin`: declaraciones, asignaciones, aritmética (con promoción `itof`), comparaciones, `&&`/`\|\|` con cortocircuito, ternario, arreglos, `print` y **`gen_cond`**. |
+| `gen_control.py` | `ControlMixin`: `if`/`else`, `while`, `do-while`, `for`, `foreach`, `switch`, `break`/`continue`, `try`/`catch`. |
+| `gen_functions.py` | `FunctionMixin`: funciones, parámetros, `return`, llamadas (`param`/`call`) y recursividad. |
+| `gen_classes.py` | `ClassMixin`: clases (`__init_fields` sintetizado), `new`, `this`, acceso a campos y la cadena de sufijos `leftHandSide` (`eval_chain`), herencia. |
+
+`TACGenerator(CoreMixin, ControlMixin, FunctionMixin, ClassMixin,
+CompiscriptVisitor)`: cada regla de la gramática la implementa **un solo**
+mixin, así que no se pisan. Las expresiones devuelven un *operando* (variable,
+temporal `$tN` o constante); quien lo consume lo libera con `free` justo
+después de emitir la instrucción que lo usa.
+
+### 12.3 Anotaciones que el checker deja para el generador
+
+El generador no vuelve a inferir tipos ni resolver nombres: reutiliza lo que
+calculó el `SemanticChecker`. Este guarda, por `id(ctx)` de cada nodo del
+árbol, `node_types` (tipo de cada expresión), `node_symbols` (símbolo
+declarado o resuelto en cada identificador/declaración) y `node_scopes` (ámbito
+vigente), y sobrescribe tanto `visit()` como `visitChildren()` para que no
+quede ningún nodo sin anotar. `name_of(symbol)` resuelve el sombreado entre
+bloques con nombres únicos por unidad.
+
+### 12.4 Condiciones con `gen_cond`
+
+Toda condición (de `if`, bucles, ternario, `&&`/`||` y `!`) pasa por
+`gen_cond(cond, ltrue, lfalse, fall)`. Desciende la cadena de precedencia hasta
+el operador real y emite saltos directos (`if a < b goto L`), sin construir un
+booleano. `&&`/`||` encadenan etiquetas intermedias (cortocircuito) y `!`
+intercambia las etiquetas. `fall` es la etiqueta que se colocará justo
+después: si coincide con una de las salidas se omite ese `goto` invirtiendo el
+operador relacional, y las etiquetas que ningún salto referencia no se emiten.
+Solo cuando una condición compuesta se usa como *valor* se materializa
+`true`/`false`.
+
+### 12.5 Tabla de símbolos ampliada (`layout.py`)
+
+Después del TAC, `assign_layout` recorre el árbol de ámbitos y completa cada
+`Symbol` con `size`, `offset`, `address` (`gp+`, `fp±`, `this+`), `label` y
+`tac_name`; cada ámbito de función con su registro de activación (`frame`:
+parámetros, locales, temporales —con el pico real que reportó el emisor—,
+`ra`/`fp` guardados y tamaño total) y cada ámbito de clase con su `layout`
+(campos con offsets, heredados primero, y métodos con la etiqueta que
+sobrescriben). Tamaños de MIPS32: integer, float y referencias 4 bytes,
+boolean 1. Detalle y ejemplos en `LenguajeIntermedio.md` §9.
+
+### 12.6 Integración con el IDE
+
+`/api/run` devuelve `tac` y `tacStats`; el visor de TAC y el panel de símbolos
+los muestran (ver §8). Con errores, `tac` es `None`, el visor se oculta y se
+borra el `.tac` de una corrida previa para no mostrar código obsoleto.
+
+### 12.7 Pruebas
+
+`src/tests/tac/<área>/` tiene una carpeta por punto de la rúbrica del P2
+(`declaraciones`, `aritmetica`, `logicas`, `arreglos`, `control_flujo`,
+`try_catch`, `funciones`, `recursividad`, `clases`, `herencia`, `temporales`,
+`tabla_simbolos`), con la convención `valido_<caso>.cps` + `valido_<caso>.tac`
+(*golden*, texto exacto) e `invalido_<caso>.cps` (debe dar errores y **ningún**
+TAC). Además hay pruebas de invariantes sobre todo TAC válido (cada `call`
+precedido por sus `param`, aridad correcta, etiquetas definidas y referenciadas,
+`return` final, pico de temporales, sin fugas), de cobertura de la rúbrica (cada
+fila tiene área, casos y demos) y del layout de la tabla de símbolos. Los
+*golden* se regeneran con `UPDATE_GOLDEN=1 make test ARGS="src/tests/tac"` y se
+revisa el diff a mano. Las demostraciones del IDE están en
+`workspace/input/comp-tac/`.
+
+## 13. Conclusiones
 
 1. El sistema de tipos (con promoción numérica, `ErrorType` para evitar
    cascadas y `UnknownType` para inferencia diferida) junto con una tabla
@@ -677,5 +818,14 @@ allá de la inspección visual.
    reparto inicial sobre una interfaz común (`types.py`/`symbols.py`)
    acordada de antemano. Esas dos estructuras se diseñaron para
    reutilizarse sin cambios estructurales en las siguientes entregas del
-   curso: generación de código intermedio (TAC) y de código ensamblador
-   MIPS.
+   curso: la generación de código intermedio (P2) las reutilizó tal cual
+   (solo se les agregaron anotaciones por nodo y los campos del layout) y la
+   de código ensamblador MIPS podrá hacerlo igual.
+4. El P2 repitió la receta: un contrato común (formato del TAC y API del
+   emisor) más un dueño único por regla de la gramática permitió que tres
+   personas escribieran el generador en paralelo, y las pruebas *golden* por
+   área detectaron cualquier cambio de comportamiento entre mixins. Que el
+   código intermedio sea texto plano estilo *Dragon Book*, con temporales
+   reciclados por función y una tabla de símbolos que ya guarda tamaños,
+   direcciones y registros de activación, deja la fase de código objeto sin
+   necesidad de volver a recorrer el árbol de sintaxis.
