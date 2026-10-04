@@ -17,6 +17,7 @@ export default function App() {
   const resizeStartY = useRef(0);
   const resizeStartH = useRef(0);
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [tacNotice, setTacNotice] = useState<string | null>(null);
  
   const appendTerminal = useCallback((line: string) => {
     setTerminalLines((prev) => [...prev, line]);
@@ -163,18 +164,50 @@ export default function App() {
         });
       }
  
-      // La pestaña TAC siempre se abre: con errores explica por qué no hay
       const tacTabPath = `${inputPath}::tac`;
-      const tacTab: EditorTab = {
-        path: tacTabPath, label: `${base} tac`, content: "", isDirty: false,
-        tacData: { lines: result.tac, stats: result.tacStats, errorCount: result.errors.length },
-      };
-      setTabs((prev) => {
-        const idx = prev.findIndex((t) => t.path === tacTabPath);
-        if (idx >= 0) { const n = [...prev]; n[idx] = tacTab; return n; }
-        return [...prev, tacTab];
-      });
-      setActiveTab(tacTabPath);
+      const savedTacPath = `output/${base}/${fileName}.tac`;
+
+      if (result.errors.length > 0 || result.tac === null) {
+        const count = result.errors.length;
+        const reason = count > 0
+          ? `${count} ${count === 1 ? "error" : "errores"}`
+          : "el compilador no devolvió TAC";
+
+        setTacNotice(
+          `${inputPath}: no se generó código intermedio (${reason}).`
+        );
+
+        setTabs((prev) => prev.filter(
+          (tab) => tab.path !== tacTabPath && tab.path !== savedTacPath
+        ));
+        setActiveTab(inputPath);
+      } else {
+        setTacNotice(null);
+
+        const tacTab: EditorTab = {
+          path: tacTabPath,
+          label: `${base} tac`,
+          content: "",
+          isDirty: false,
+          tacData: {
+            lines: result.tac,
+            stats: result.tacStats,
+            errorCount: 0,
+          },
+        };
+
+        setTabs((prev) => {
+          // Retira una vista del archivo guardado que podría estar vieja.
+          const updated = prev.filter((tab) => tab.path !== savedTacPath);
+          const index = updated.findIndex((tab) => tab.path === tacTabPath);
+          if (index >= 0) {
+            updated[index] = tacTab;
+            return updated;
+          }
+          return [...updated, tacTab];
+        });
+        setActiveTab(tacTabPath);
+      }
 
       await refreshTree();
     } catch (e: any) {
@@ -199,6 +232,11 @@ export default function App() {
       </aside>
  
       <div className="main-area">
+        {tacNotice && (
+          <div className="compile-notice" role="alert">
+            {tacNotice}
+          </div>
+        )}
         <EditorPane
           tabs={tabs}
           activeTab={activeTab}
