@@ -1,0 +1,4 @@
+function fib(n: integer): integer {
+    if (n < 2) { return n; } else { return fib(n - 1) + fib(n - 2); }
+}
+print(fib(7));

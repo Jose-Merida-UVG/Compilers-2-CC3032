@@ -100,3 +100,48 @@
   font-size: 11px;
   text-align: right;
 }
+
+.st-symbols__mem {
+  color: var(--text-dim);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.st-symbols__label {
+  color: var(--color-success);
+  white-space: nowrap;
+}
+
+.st-frame {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 3px 0;
+}
+
+.st-frame__title {
+  color: var(--text-dim);
+  font-weight: 500;
+}
+
+.st-chip {
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.st-chip--total {
+  color: var(--accent-text);
+}
+
+.st-layout {
+  margin-bottom: 2px;
+}
+
+.st-symbols__tac {
+  color: var(--color-warning);
+}

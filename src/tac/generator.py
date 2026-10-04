@@ -104,43 +104,8 @@ class TACGenerator(
         self._names[symbol_key] = name
         return name
 
-    def _check_implemented(self, tree) -> None:
-        """Detecta reglas pendientes antes de emitir TAC incompleto."""
-        pending_rules = {
-            "FunctionDeclaration",
-            "ReturnStatement",
-            "CallExpr",
-            "ClassDeclaration",
-            "NewExpr",
-            "ThisExpr",
-            "PropertyAccessExpr",
-            "PropertyAssignExpr",
-        }
-
-        nodes = [tree]
-        while nodes:
-            node = nodes.pop()
-            rule = type(node).__name__.removesuffix("Context")
-            requires_implementation = rule in pending_rules
-
-            if rule == "LeftHandSide" and node.suffixOp():
-                requires_implementation = True
-
-            if requires_implementation:
-                method_name = f"visit{rule}"
-                actual = getattr(type(self), method_name, None)
-                default = getattr(CompiscriptVisitor, method_name, None)
-                if actual is default:
-                    raise NotImplementedError(
-                        f"TAC pendiente de implementación: {method_name}"
-                    )
-
-            for index in range(node.getChildCount() - 1, -1, -1):
-                nodes.append(node.getChild(index))
-
     def visitProgram(self, ctx) -> list[str]:
         """Agrupa las sentencias de nivel superior en __main."""
-        self._check_implemented(ctx)
         self.e.begin_unit("func __main():")
         for statement in ctx.statement():
             self.visit(statement)

@@ -1,0 +1,151 @@
+{
+  "kind": "GLOBAL",
+  "owner": null,
+  "symbols": [
+    {
+      "name": "mezcla",
+      "kind": "FUNCTION",
+      "type": "(integer, boolean, float) -> integer",
+      "line": 1,
+      "column": 0,
+      "size": null,
+      "offset": null,
+      "address": null,
+      "label": "mezcla",
+      "tac_name": "mezcla"
+    }
+  ],
+  "children": [
+    {
+      "kind": "FUNCTION",
+      "owner": "mezcla",
+      "symbols": [
+        {
+          "name": "a",
+          "kind": "PARAMETER",
+          "type": "integer",
+          "line": 1,
+          "column": 0,
+          "size": 4,
+          "offset": 0,
+          "address": "fp+8",
+          "label": null,
+          "tac_name": "a"
+        },
+        {
+          "name": "b",
+          "kind": "PARAMETER",
+          "type": "boolean",
+          "line": 1,
+          "column": 0,
+          "size": 1,
+          "offset": 4,
+          "address": "fp+12",
+          "label": null,
+          "tac_name": "b"
+        },
+        {
+          "name": "c",
+          "kind": "PARAMETER",
+          "type": "float",
+          "line": 1,
+          "column": 0,
+          "size": 4,
+          "offset": 8,
+          "address": "fp+16",
+          "label": null,
+          "tac_name": "c"
+        }
+      ],
+      "children": [
+        {
+          "kind": "BLOCK",
+          "owner": null,
+          "symbols": [
+            {
+              "name": "x",
+              "kind": "VARIABLE",
+              "type": "integer",
+              "line": 2,
+              "column": 4,
+              "size": 4,
+              "offset": 0,
+              "address": "fp-4",
+              "label": null,
+              "tac_name": "x"
+            },
+            {
+              "name": "activo",
+              "kind": "VARIABLE",
+              "type": "boolean",
+              "line": 3,
+              "column": 4,
+              "size": 1,
+              "offset": 4,
+              "address": "fp-5",
+              "label": null,
+              "tac_name": "activo"
+            },
+            {
+              "name": "y",
+              "kind": "VARIABLE",
+              "type": "float",
+              "line": 4,
+              "column": 4,
+              "size": 4,
+              "offset": 8,
+              "address": "fp-12",
+              "label": null,
+              "tac_name": "y"
+            }
+          ],
+          "children": [
+            {
+              "kind": "BLOCK",
+              "owner": null,
+              "symbols": [
+                {
+                  "name": "z",
+                  "kind": "VARIABLE",
+                  "type": "integer",
+                  "line": 6,
+                  "column": 8,
+                  "size": 4,
+                  "offset": 12,
+                  "address": "fp-16",
+                  "label": null,
+                  "tac_name": "z"
+                }
+              ],
+              "children": []
+            },
+            {
+              "kind": "BLOCK",
+              "owner": null,
+              "symbols": [],
+              "children": []
+            }
+          ]
+        }
+      ],
+      "frame": {
+        "label": "mezcla",
+        "params_size": 12,
+        "locals_size": 16,
+        "temps": 1,
+        "temps_size": 4,
+        "saved_size": 8,
+        "total_size": 40
+      }
+    }
+  ],
+  "frame": {
+    "label": "__main",
+    "params_size": 0,
+    "locals_size": 0,
+    "temps": 1,
+    "temps_size": 4,
+    "saved_size": 8,
+    "total_size": 12
+  }
+}

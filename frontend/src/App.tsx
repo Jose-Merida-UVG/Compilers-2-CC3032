@@ -67,6 +67,10 @@ export default function App() {
       } else if (node.path.endsWith(".symbols")) {
         const symbolTableData = JSON.parse(content);
         setTabs((prev) => [...prev, { path: node.path, label: node.name, content: "", isDirty: false, symbolTableData }]);
+      } else if (node.path.endsWith(".tac")) {
+        // El .tac guardado solo existe si la corrida no tuvo errores
+        const tacData = { lines: content.replace(/\n$/, "").split("\n"), stats: null, errorCount: 0 };
+        setTabs((prev) => [...prev, { path: node.path, label: node.name, content: "", isDirty: false, tacData }]);
       } else {
         setTabs((prev) => [...prev, { path: node.path, label: node.name, content, isDirty: false }]);
       }
@@ -100,7 +104,7 @@ export default function App() {
  
   const saveTab = useCallback(async (path: string) => {
     const tab = tabs.find((t) => t.path === path);
-    if (!tab || tab.treeData || tab.symbolTableData) return; // read-only tabs
+    if (!tab || tab.treeData || tab.symbolTableData || tab.tacData) return; // pestañas de solo lectura
     try {
       await api.writeFile(path, tab.content);
       setTabs((prev) => prev.map((t) => t.path === path ? { ...t, isDirty: false } : t));
@@ -111,7 +115,7 @@ export default function App() {
     }
   }, [tabs, appendTerminal, refreshTree]);
  
-  // ── Run (lex + parse) ─────────────────────────────────────────────────────────
+  // ── Run (léxico, sintaxis, semántica y TAC) ───────────────────────────────────
   const runFile = useCallback(async (inputPath: string) => {
     const tab = tabs.find((t) => t.path === inputPath);
     if (tab?.isDirty) {
@@ -130,7 +134,9 @@ export default function App() {
       result.lines.forEach((l) => appendTerminal(l));
       const fileName = inputPath.split("/").pop() ?? "";
       const base = fileName.replace(/\.cps$/, "");
-      const saved = result.symbolTable ? ".out, .tree y .symbols" : ".out y .tree";
+      const saved = result.tac
+        ? ".out, .tree, .symbols y .tac"
+        : result.symbolTable ? ".out, .tree y .symbols" : ".out y .tree";
       appendTerminal(`── salida guardada en output/${base}/ (${saved}) ──`);
 
       if (result.tree) {
@@ -157,6 +163,19 @@ export default function App() {
         });
       }
  
+      // La pestaña TAC siempre se abre: con errores explica por qué no hay
+      const tacTabPath = `${inputPath}::tac`;
+      const tacTab: EditorTab = {
+        path: tacTabPath, label: `${base} tac`, content: "", isDirty: false,
+        tacData: { lines: result.tac, stats: result.tacStats, errorCount: result.errors.length },
+      };
+      setTabs((prev) => {
+        const idx = prev.findIndex((t) => t.path === tacTabPath);
+        if (idx >= 0) { const n = [...prev]; n[idx] = tacTab; return n; }
+        return [...prev, tacTab];
+      });
+      setActiveTab(tacTabPath);
+
       await refreshTree();
     } catch (e: any) {
       appendTerminal(`Error: ${e.message}`);
@@ -164,7 +183,7 @@ export default function App() {
   }, [tabs, appendTerminal, refreshTree]);
  
   const activeTabData = tabs.find((t) => t.path === activeTab) ?? null;
-  const isCps = (activeTab?.endsWith(".cps") ?? false) && !activeTabData?.treeData && !activeTabData?.symbolTableData;
+  const isCps = (activeTab?.endsWith(".cps") ?? false) && !activeTabData?.treeData && !activeTabData?.symbolTableData && !activeTabData?.tacData;
  
   return (
     <div className="app-shell">

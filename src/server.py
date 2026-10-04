@@ -3,8 +3,9 @@
 Serves a small file-CRUD API over a `workspace/` directory (repo root) plus a
 `/api/run` endpoint that lexes, parses and semantically analyses a `.cps`
 file (see compiler.py) and returns errors, the parse tree and the symbol
-table for the frontend's viewers. Each run also persists `.out`, `.tree` and
-`.symbols` under `workspace/output/<stem>/`.
+table for the frontend's viewers, plus the three-address code (TAC) when the
+program has no errors. Each run also persists `.out`, `.tree`, `.symbols` and
+`.tac` under `workspace/output/<stem>/`.
 
 Runs with:
     PYTHONPATH=generated:src uvicorn server:app --app-dir src --reload --port 8080
@@ -185,10 +186,19 @@ def run_file(body: RunBody):
     elif symbols_path.exists():
         symbols_path.unlink()
 
+    # Con errores no hay TAC y se borra el de una corrida anterior
+    tac_path = run_dir / f"{p.name}.tac"
+    if result["tac"] is not None:
+        tac_path.write_text("\n".join(result["tac"]) + "\n", encoding="utf-8")
+    elif tac_path.exists():
+        tac_path.unlink()
+
     return {
         "lines": lines,
         "errors": result["errors"],
         "statusMessage": result["status_message"],
         "tree": result["tree_json"],
         "symbolTable": result["symbol_table_json"],
+        "tac": result["tac"],
+        "tacStats": result["tac_stats"],
     }

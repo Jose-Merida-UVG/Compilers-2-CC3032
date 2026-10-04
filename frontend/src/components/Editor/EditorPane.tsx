@@ -4,6 +4,7 @@ import type { EditorTab } from "../../types";
 import { registerCompiscriptLanguage, registerOutputLanguage } from "../../lib/monaco-compiscript";
 import ParseTreeViewer from "../ParseTreeViewer/ParseTreeViewer";
 import SymbolTableViewer from "../SymbolTableViewer/SymbolTableViewer";
+import TacViewer from "../TacViewer/TacViewer";
 import MarkdownViewer from "../MarkdownViewer/MarkdownViewer";
 import "./Editor.css";
 
@@ -24,6 +25,7 @@ export default function EditorPane({
   const isRunnable = !!onRunFile;
   const isTreeTab = !!(active?.treeData);
   const isSymbolTableTab = !!(active?.symbolTableData);
+  const isTacTab = !!(active?.tacData);
   const isMarkdown = activeTab?.endsWith(".md") ?? false;
 
   const handleBeforeMount = (monaco: typeof Monaco) => {
@@ -80,6 +82,8 @@ export default function EditorPane({
             <ParseTreeViewer data={active.treeData!} />
           ) : isSymbolTableTab ? (
             <SymbolTableViewer data={active.symbolTableData!} />
+          ) : isTacTab ? (
+            <TacViewer data={active.tacData!} />
           ) : isMarkdown ? (
             <MarkdownViewer content={active.content} />
           ) : (
@@ -123,10 +127,10 @@ function Welcome() {
   return (
     <div className="editor-welcome">
       <div className="editor-welcome__badge">Compiscript</div>
-      <p className="editor-welcome__sub">Lexical &amp; Syntax Analysis</p>
+      <p className="editor-welcome__sub">Lexical, Syntax &amp; Semantic Analysis · Intermediate Code (TAC)</p>
       <div className="editor-welcome__hints">
         <Hint keys={["Ctrl", "S"]} label="Force save (auto-saves after 200ms)" />
-        <Hint keys={["▶ Run"]} label="Lex + parse the .cps file, show errors and parse tree" />
+        <Hint keys={["▶ Run"]} label="Analyze the .cps file: errors, parse tree, symbol table and TAC" />
       </div>
     </div>
   );

@@ -29,8 +29,15 @@ class Symbol:
     type: Type
     line: int
     column: int
-    # Reserved for TAC/MIPS (offset, register). Unused here.
-    address: Optional[int] = None
+    # Los llena semantic/layout.py: tamaño en bytes, offset dentro de su área,
+    # dirección ("gp+4", "fp-8", "fp+8", "this+0") y etiqueta de funciones,
+    # métodos y clases. None mientras no se calcule el layout.
+    size: Optional[int] = None
+    offset: Optional[int] = None
+    address: Optional[str] = None
+    label: Optional[str] = None
+    # Nombre con el que aparece en el TAC (distinto del original si hay sombreado)
+    tac_name: Optional[str] = None
 
 
 class ScopeKind(Enum):
@@ -57,10 +64,14 @@ class Scope:
     # Function/class owning this scope, None for GLOBAL and bare blocks.
     # Unused here; for projects 2/3.
     owner: Optional[str] = None
+    # Registro de activación (FUNCTION) y layout de objeto (CLASS), ya en
+    # forma de JSON. Los llena semantic/layout.py.
+    frame: Optional[dict] = None
+    layout: Optional[dict] = None
 
     def to_dict(self) -> dict:
         """JSON view of this subtree, for the IDE panel."""
-        return {
+        data = {
             "kind": self.kind.name,
             "owner": self.owner,
             "symbols": [
@@ -70,11 +81,21 @@ class Scope:
                     "type": str(symbol.type),
                     "line": symbol.line,
                     "column": symbol.column,
+                    "size": symbol.size,
+                    "offset": symbol.offset,
+                    "address": symbol.address,
+                    "label": symbol.label,
+                    "tac_name": symbol.tac_name,
                 }
                 for symbol in self.symbols.values()
             ],
             "children": [child.to_dict() for child in self.children],
         }
+        if self.frame is not None:
+            data["frame"] = self.frame
+        if self.layout is not None:
+            data["layout"] = self.layout
+        return data
 
     def declare(self, symbol: Symbol) -> bool:
         """Declare in *this* scope. False if the name was already taken:
