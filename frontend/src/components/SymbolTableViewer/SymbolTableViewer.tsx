@@ -68,6 +68,12 @@ function ScopeNodeView({ node, depth }: { node: ScopeNode; depth: number }) {
                     <td className="st-symbols__mem" title="tamaño en bytes">
                       {s.size !== null ? `${s.size} B` : ""}
                     </td>
+                    <td
+                      className="st-symbols__mem"
+                      title="desplazamiento en bytes dentro del área de memoria"
+                    >
+                      {s.offset != null ? `offset: ${s.offset} B` : ""}
+                    </td>
                     <td className="st-symbols__mem" title="dirección (gp global, fp pila, this campo)">
                       {s.address ?? ""}
                     </td>
