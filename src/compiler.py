@@ -11,6 +11,9 @@ from CompiscriptLexer import CompiscriptLexer
 from CompiscriptParser import CompiscriptParser
 from error_listener import CompiscriptErrorListener
 from semantic.checker import SemanticChecker
+from semantic.layout import assign_layout
+from semantic.symbols import Scope
+from tac.generator import TACGenerator
 
 SUCCESS_MESSAGE = (
     "El archivo fue analizado correctamente. "
@@ -31,17 +34,37 @@ def _tree_to_dict(node, rule_names: list[str]) -> dict:
     }
 
 
+def _frame_temps(scope: Scope) -> int:
+    """Mayor cantidad de temporales entre los frames del subárbol."""
+    own = scope.frame["temps"] if scope.frame else 0
+    return max([own] + [_frame_temps(child) for child in scope.children])
+
+
+def _tac_stats(tac: list[str], generator: TACGenerator, global_scope: Scope) -> dict:
+    """Resumen del TAC: instrucciones (sin cabeceras ni cierres de func/class),
+    pico de temporales de una sola función y cantidad de unidades `func`."""
+    structure = ("func ", "endfunc", "class ", "endclass")
+    return {
+        "instructions": sum(1 for line in tac if not line.startswith(structure)),
+        "temps": _frame_temps(global_scope),
+        "functions": sum(1 for line in tac if line.startswith("func ")),
+    }
+
+
 def analyze(input_stream: InputStream) -> dict:
-    """Lex + parse a Compiscript ANTLR input stream.
- 
-    Returns a dict with:
-      - errors: list[str]      lexical/syntax error messages (empty if none)
-      - status_message: str    Spanish message: success text if no errors,
-                                otherwise a summary of how many were found
-      - tree_json: dict        parse tree as a nested dict, for visualization
-      - symbol_table_json: dict | None  scope tree (see semantic/symbols.py's
-                                Scope.to_dict), or None if semantic analysis
-                                didn't run (lexical/syntax errors present)
+    """Analiza un fuente Compiscript: léxico, sintaxis, semántica y, sin
+    errores, código intermedio.
+
+    Devuelve un dict con:
+      - errors: list[str]      errores léxicos, sintácticos y semánticos
+      - status_message: str    mensaje en español: éxito o conteo de errores
+      - tree_json: dict        árbol sintáctico, para el visor del árbol
+      - symbol_table_json: dict | None  árbol de ámbitos (Scope.to_dict) con
+                               el layout de semantic/layout.py; None si el
+                               análisis semántico no corrió
+      - tac: list[str] | None  código de tres direcciones; None con cualquier
+                               error (no se genera TAC)
+      - tac_stats: dict | None {"instructions", "temps", "functions"} del TAC
     """
     lexer = CompiscriptLexer(input_stream)
  
@@ -69,24 +92,52 @@ def analyze(input_stream: InputStream) -> dict:
     # an empty tree) when semantic analysis didn't run at all, so the
     # frontend can tell "no symbols" apart from "didn't get this far".
     symbol_table_json = None
+    tac = None
+    tac_stats = None
     if not errors:
         checker = SemanticChecker()
         semantic_errors = checker.check(tree)
         errors.extend(semantic_errors.as_strings())
-        symbol_table_json = checker.symbols.global_scope.to_dict()
+        global_scope = checker.symbols.global_scope
+
+        generator = None
+        if not errors:
+            # El layout necesita los temporales del TAC, por eso va después
+            try:
+                generator = TACGenerator(checker)
+                tac = generator.visit(tree)
+            except Exception as exc:  # un fallo del generador no debe tumbar el IDE
+                tac = None
+                errors.append(f"Error interno al generar el código intermedio: {exc}")
+
+        if generator and tac:
+            assign_layout(global_scope, generator.e.max_temps, generator.name_of)
+        else:
+            assign_layout(global_scope)
+        symbol_table_json = global_scope.to_dict()
+        if tac is not None and generator is not None:
+            tac_stats = _tac_stats(tac, generator, global_scope)
 
     if errors:
         n = len(errors)
         noun = "error" if n == 1 else "errores"
-        status_message = f"Se encontraron {n} {noun} durante el análisis."
+        status_message = (
+            f"Se encontraron {n} {noun} durante el análisis. "
+            "No se generó código intermedio."
+        )
     else:
-        status_message = SUCCESS_MESSAGE
+        status_message = (
+            f"{SUCCESS_MESSAGE} "
+            f"Código intermedio generado ({tac_stats['instructions']} instrucciones)."
+        )
  
     return {
         "errors": errors,
         "status_message": status_message,
         "tree_json": _tree_to_dict(tree, parser.ruleNames),
         "symbol_table_json": symbol_table_json,
+        "tac": tac,
+        "tac_stats": tac_stats,
     }
 
 
