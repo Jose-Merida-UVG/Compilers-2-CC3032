@@ -856,6 +856,10 @@ class SemanticChecker(CompiscriptVisitor):
         if isinstance(ctx, CompiscriptParser.IfStatementContext):
             blocks = ctx.block()
             return len(blocks) == 2 and all(self._always_returns(b) for b in blocks)
+        if isinstance(ctx, CompiscriptParser.TryCatchStatementContext):
+            # Como un if/else: el control entra al `try` o, si falla, al
+            # `catch`, así que retorna siempre si ambos bloques retornan.
+            return all(self._always_returns(b) for b in ctx.block())
         if isinstance(ctx, CompiscriptParser.StatementContext):
             if ctx.functionDeclaration() is not None:
                 return False
