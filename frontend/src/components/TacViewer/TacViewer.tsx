@@ -1,4 +1,5 @@
 import type { TacData } from "../../types";
+import { useEffect, useState } from "react";
 import "./TacViewer.css";
 
 interface Props {
@@ -7,6 +8,23 @@ interface Props {
 
 export default function TacViewer({ data }: Props) {
   const { lines, stats, errorCount } = data;
+
+  const [copyStatus, setCopyStatus] = useState("");
+
+  useEffect(() => {
+    setCopyStatus("");
+  }, [data]);
+
+  const copyTac = async () => {
+    if (lines === null) return;
+
+    try {
+      await navigator.clipboard.writeText(lines.join("\n") + "\n");
+      setCopyStatus("TAC copiado.");
+    } catch {
+      setCopyStatus("No se pudo copiar. Selecciona el TAC y cópialo manualmente.");
+    }
+  };
 
   if (lines === null) {
     const noun = errorCount === 1 ? "error" : "errores";
@@ -20,7 +38,7 @@ export default function TacViewer({ data }: Props) {
           <p>
             El programa tiene {errorCount} {noun}; el TAC solo se genera cuando el análisis
             léxico, sintáctico y semántico no reporta ninguno. Corrige los errores del panel
-            OUTPUT y vuelve a ejecutar.
+            OUTPUT y vuelve a compilar.
           </p>
         </div>
       </div>
@@ -38,6 +56,17 @@ export default function TacViewer({ data }: Props) {
             <span className="tac-stats__chip">{stats.temps} temporales (pico)</span>
           </div>
         )}
+        <button
+          type="button"
+          className="tac-copy"
+          onClick={copyTac}
+          disabled={lines.length === 0}
+        >
+          Copiar TAC
+        </button>
+      </div>
+      <div className="tac-copy-status" role="status" aria-live="polite">
+        {copyStatus}
       </div>
       <div className="tac-viewer__body">
         {lines.map((line, i) => (

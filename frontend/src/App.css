@@ -46,3 +46,14 @@
   color: var(--text-muted);
   user-select: none;
 }
+
+.compile-notice {
+  flex-shrink: 0;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  border-left: 3px solid var(--color-warning);
+  background: var(--bg-elevated);
+  color: var(--color-warning);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}

@@ -110,3 +110,40 @@
 .tac-notice p {
   margin: 0;
 }
+
+.tac-copy {
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.tac-copy:hover {
+  background: var(--bg-hover);
+}
+
+.tac-copy:focus-visible {
+  outline: 2px solid var(--accent-text);
+  outline-offset: 2px;
+}
+
+.tac-copy:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.tac-copy-status {
+  padding: 0 14px;
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+.tac-copy-status:not(:empty) {
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
