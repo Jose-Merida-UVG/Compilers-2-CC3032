@@ -1,0 +1,247 @@
+{
+  "kind": "GLOBAL",
+  "owner": null,
+  "symbols": [
+    {
+      "name": "Animal",
+      "kind": "CLASS",
+      "type": "Animal",
+      "line": 1,
+      "column": 0,
+      "size": 8,
+      "offset": null,
+      "address": null,
+      "label": "Animal",
+      "tac_name": "Animal"
+    },
+    {
+      "name": "Perro",
+      "kind": "CLASS",
+      "type": "Perro",
+      "line": 6,
+      "column": 0,
+      "size": 16,
+      "offset": null,
+      "address": null,
+      "label": "Perro",
+      "tac_name": "Perro"
+    },
+    {
+      "name": "p",
+      "kind": "VARIABLE",
+      "type": "Perro",
+      "line": 11,
+      "column": 0,
+      "size": 4,
+      "offset": 0,
+      "address": "gp+0",
+      "label": null,
+      "tac_name": "p"
+    }
+  ],
+  "children": [
+    {
+      "kind": "CLASS",
+      "owner": "Animal",
+      "symbols": [
+        {
+          "name": "nombre",
+          "kind": "VARIABLE",
+          "type": "string",
+          "line": 2,
+          "column": 4,
+          "size": 4,
+          "offset": 0,
+          "address": "this+0",
+          "label": null,
+          "tac_name": "nombre"
+        },
+        {
+          "name": "patas",
+          "kind": "VARIABLE",
+          "type": "integer",
+          "line": 3,
+          "column": 4,
+          "size": 4,
+          "offset": 4,
+          "address": "this+4",
+          "label": null,
+          "tac_name": "patas"
+        },
+        {
+          "name": "hablar",
+          "kind": "FUNCTION",
+          "type": "() -> string",
+          "line": 4,
+          "column": 4,
+          "size": null,
+          "offset": null,
+          "address": null,
+          "label": "Animal.hablar",
+          "tac_name": "Animal.hablar"
+        }
+      ],
+      "children": [
+        {
+          "kind": "FUNCTION",
+          "owner": "hablar",
+          "symbols": [],
+          "children": [
+            {
+              "kind": "BLOCK",
+              "owner": null,
+              "symbols": [],
+              "children": []
+            }
+          ],
+          "frame": {
+            "label": "Animal.hablar",
+            "params_size": 4,
+            "locals_size": 0,
+            "temps": 0,
+            "temps_size": 0,
+            "saved_size": 8,
+            "total_size": 12
+          }
+        }
+      ],
+      "layout": {
+        "size": 8,
+        "parent": null,
+        "fields": [
+          {
+            "name": "nombre",
+            "offset": 0,
+            "size": 4,
+            "inherited": false
+          },
+          {
+            "name": "patas",
+            "offset": 4,
+            "size": 4,
+            "inherited": false
+          }
+        ],
+        "methods": [
+          {
+            "name": "hablar",
+            "label": "Animal.hablar",
+            "overrides": null
+          }
+        ]
+      }
+    },
+    {
+      "kind": "CLASS",
+      "owner": "Perro",
+      "symbols": [
+        {
+          "name": "vivo",
+          "kind": "VARIABLE",
+          "type": "boolean",
+          "line": 7,
+          "column": 4,
+          "size": 1,
+          "offset": 8,
+          "address": "this+8",
+          "label": null,
+          "tac_name": "vivo"
+        },
+        {
+          "name": "raza",
+          "kind": "VARIABLE",
+          "type": "string",
+          "line": 8,
+          "column": 4,
+          "size": 4,
+          "offset": 12,
+          "address": "this+12",
+          "label": null,
+          "tac_name": "raza"
+        },
+        {
+          "name": "hablar",
+          "kind": "FUNCTION",
+          "type": "() -> string",
+          "line": 9,
+          "column": 4,
+          "size": null,
+          "offset": null,
+          "address": null,
+          "label": "Perro.hablar",
+          "tac_name": "Perro.hablar"
+        }
+      ],
+      "children": [
+        {
+          "kind": "FUNCTION",
+          "owner": "hablar",
+          "symbols": [],
+          "children": [
+            {
+              "kind": "BLOCK",
+              "owner": null,
+              "symbols": [],
+              "children": []
+            }
+          ],
+          "frame": {
+            "label": "Perro.hablar",
+            "params_size": 4,
+            "locals_size": 0,
+            "temps": 0,
+            "temps_size": 0,
+            "saved_size": 8,
+            "total_size": 12
+          }
+        }
+      ],
+      "layout": {
+        "size": 16,
+        "parent": "Animal",
+        "fields": [
+          {
+            "name": "nombre",
+            "offset": 0,
+            "size": 4,
+            "inherited": true
+          },
+          {
+            "name": "patas",
+            "offset": 4,
+            "size": 4,
+            "inherited": true
+          },
+          {
+            "name": "vivo",
+            "offset": 8,
+            "size": 1,
+            "inherited": false
+          },
+          {
+            "name": "raza",
+            "offset": 12,
+            "size": 4,
+            "inherited": false
+          }
+        ],
+        "methods": [
+          {
+            "name": "hablar",
+            "label": "Perro.hablar",
+            "overrides": "Animal.hablar"
+          }
+        ]
+      }
+    }
+  ],
+  "frame": {
+    "label": "__main",
+    "params_size": 0,
+    "locals_size": 0,
+    "temps": 1,
+    "temps_size": 4,
+    "saved_size": 8,
+    "total_size": 12
+  }
+}

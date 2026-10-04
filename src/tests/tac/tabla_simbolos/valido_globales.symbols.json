@@ -1,0 +1,108 @@
+{
+  "kind": "GLOBAL",
+  "owner": null,
+  "symbols": [
+    {
+      "name": "a",
+      "kind": "VARIABLE",
+      "type": "integer",
+      "line": 1,
+      "column": 0,
+      "size": 4,
+      "offset": 0,
+      "address": "gp+0",
+      "label": null,
+      "tac_name": "a"
+    },
+    {
+      "name": "ok",
+      "kind": "VARIABLE",
+      "type": "boolean",
+      "line": 2,
+      "column": 0,
+      "size": 1,
+      "offset": 4,
+      "address": "gp+4",
+      "label": null,
+      "tac_name": "ok"
+    },
+    {
+      "name": "f",
+      "kind": "VARIABLE",
+      "type": "float",
+      "line": 3,
+      "column": 0,
+      "size": 4,
+      "offset": 8,
+      "address": "gp+8",
+      "label": null,
+      "tac_name": "f"
+    },
+    {
+      "name": "s",
+      "kind": "VARIABLE",
+      "type": "string",
+      "line": 4,
+      "column": 0,
+      "size": 4,
+      "offset": 12,
+      "address": "gp+12",
+      "label": null,
+      "tac_name": "s"
+    },
+    {
+      "name": "MAX",
+      "kind": "CONSTANT",
+      "type": "integer",
+      "line": 5,
+      "column": 0,
+      "size": 4,
+      "offset": 16,
+      "address": "gp+16",
+      "label": null,
+      "tac_name": "MAX"
+    },
+    {
+      "name": "xs",
+      "kind": "VARIABLE",
+      "type": "integer[]",
+      "line": 6,
+      "column": 0,
+      "size": 4,
+      "offset": 20,
+      "address": "gp+20",
+      "label": null,
+      "tac_name": "xs"
+    }
+  ],
+  "children": [
+    {
+      "kind": "BLOCK",
+      "owner": null,
+      "symbols": [
+        {
+          "name": "dentro",
+          "kind": "VARIABLE",
+          "type": "integer",
+          "line": 8,
+          "column": 4,
+          "size": 4,
+          "offset": 24,
+          "address": "gp+24",
+          "label": null,
+          "tac_name": "dentro"
+        }
+      ],
+      "children": []
+    }
+  ],
+  "frame": {
+    "label": "__main",
+    "params_size": 0,
+    "locals_size": 0,
+    "temps": 1,
+    "temps_size": 4,
+    "saved_size": 8,
+    "total_size": 12
+  }
+}

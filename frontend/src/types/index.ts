@@ -23,6 +23,48 @@ export interface SymbolEntry {
   type: string;
   line: number;
   column: number;
+  /** Datos de memoria de semantic/layout.py; null si no aplican. */
+  size: number | null;
+  offset: number | null;
+  /** "gp+4" (global), "fp-8" (local), "fp+8" (parámetro), "this+0" (campo). */
+  address: string | null;
+  /** Etiqueta de una función ("f"), método ("Clase.m") o clase. */
+  label: string | null;
+  /** Nombre que usa el TAC para este símbolo ("x_1" si hubo sombreado). */
+  tac_name: string | null;
+}
+
+/** Registro de activación de un ámbito FUNCTION (tamaños en bytes). */
+export interface FrameInfo {
+  label: string;
+  params_size: number;
+  locals_size: number;
+  temps: number;
+  temps_size: number;
+  saved_size: number;
+  total_size: number;
+}
+
+export interface ClassField {
+  name: string;
+  offset: number;
+  size: number;
+  inherited: boolean;
+}
+
+export interface ClassMethod {
+  name: string;
+  label: string;
+  /** Etiqueta del método del ancestro que este reemplaza, si hay. */
+  overrides: string | null;
+}
+
+/** Layout de objeto de un ámbito CLASS. */
+export interface ClassLayout {
+  size: number;
+  parent: string | null;
+  fields: ClassField[];
+  methods: ClassMethod[];
 }
 
 /** One node in the symbol-table scope tree, mirroring symbols.py's Scope.to_dict(). */
@@ -33,6 +75,20 @@ export interface ScopeNode {
   owner: string | null;
   symbols: SymbolEntry[];
   children: ScopeNode[];
+  /** Solo en ámbitos FUNCTION. */
+  frame?: FrameInfo;
+  /** Solo en ámbitos CLASS. */
+  layout?: ClassLayout;
+}
+
+/** Resumen del TAC generado. */
+export interface TacStats {
+  /** Líneas que no son func/endfunc/class/endclass. */
+  instructions: number;
+  /** Pico de temporales simultáneos en una función. */
+  temps: number;
+  /** Unidades func (métodos y __main incluidos). */
+  functions: number;
 }
 
 export interface RunOutput {
@@ -47,6 +103,17 @@ export interface RunOutput {
   /** The scope tree, for the SymbolTableViewer -- null if semantic
    * analysis didn't run (lexical/syntax errors present). */
   symbolTable: ScopeNode | null;
+  /** Código de tres direcciones; null con cualquier error. */
+  tac: string[] | null;
+  tacStats: TacStats | null;
+}
+
+/** Lo que muestra la pestaña TAC: el código o por qué no hay. */
+export interface TacData {
+  lines: string[] | null;
+  stats: TacStats | null;
+  /** Errores que impidieron generar el TAC (cuando lines es null). */
+  errorCount: number;
 }
 
 export interface EditorTab {
@@ -58,4 +125,22 @@ export interface EditorTab {
   treeData?: ParseTreeNode;
   /** Populated after Run — renders the SymbolTableViewer instead of Monaco. */
   symbolTableData?: ScopeNode;
+  /** Tras Run (o al abrir un .tac): se muestra con el TacViewer. */
+  tacData?: TacData;
+}
+
+/** Error del análisis y su ubicación en el archivo fuente. */
+export interface CompilerDiagnostic {
+  path: string;
+  message: string;
+  line: number | null;
+  column: number | null;
+}
+
+/** Solicitud de navegación a una posición del editor. */
+export interface EditorLocation {
+  path: string;
+  line: number;
+  column: number;
+  requestId: number;
 }

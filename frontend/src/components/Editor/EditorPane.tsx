@@ -1,10 +1,12 @@
 import MonacoEditor from "@monaco-editor/react";
 import type * as Monaco from "monaco-editor";
-import type { EditorTab } from "../../types";
+import type { EditorTab, EditorLocation } from "../../types";
 import { registerCompiscriptLanguage, registerOutputLanguage } from "../../lib/monaco-compiscript";
 import ParseTreeViewer from "../ParseTreeViewer/ParseTreeViewer";
 import SymbolTableViewer from "../SymbolTableViewer/SymbolTableViewer";
+import TacViewer from "../TacViewer/TacViewer";
 import MarkdownViewer from "../MarkdownViewer/MarkdownViewer";
+import { useEffect, useRef } from "react";
 import "./Editor.css";
 
 interface Props {
@@ -15,16 +17,47 @@ interface Props {
   onChangeContent: (p: string, c: string) => void;
   onSave: (p: string) => void;
   onRunFile?: (p: string) => void;
+  location?: EditorLocation | null;
 }
 
 export default function EditorPane({
-  tabs, activeTab, onSelectTab, onCloseTab, onChangeContent, onSave, onRunFile,
+  tabs, activeTab, onSelectTab, onCloseTab, onChangeContent, onSave, onRunFile, location,
 }: Props) {
   const active = tabs.find((t) => t.path === activeTab) ?? null;
   const isRunnable = !!onRunFile;
   const isTreeTab = !!(active?.treeData);
   const isSymbolTableTab = !!(active?.symbolTableData);
+  const isTacTab = !!(active?.tacData);
   const isMarkdown = activeTab?.endsWith(".md") ?? false;
+  const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
+
+  const revealLocation = (editor: Monaco.editor.IStandaloneCodeEditor) => {
+    if (!location || location.path !== activeTab) return;
+
+    const model = editor.getModel();
+    if (!model) return;
+
+    const position = model.validatePosition({
+      lineNumber: location.line,
+      column: location.column,
+    });
+
+    editor.setPosition(position);
+    editor.revealLineInCenter(position.lineNumber);
+    editor.focus();
+  };
+
+  useEffect(() => {
+    if (isTreeTab || isSymbolTableTab || isTacTab || isMarkdown) return;
+
+    const frame = requestAnimationFrame(() => {
+      if (editorRef.current) {
+        revealLocation(editorRef.current);
+      }
+    });
+
+    return () => cancelAnimationFrame(frame);
+  }, [location, activeTab, isTreeTab, isSymbolTableTab, isTacTab, isMarkdown]);
 
   const handleBeforeMount = (monaco: typeof Monaco) => {
     registerCompiscriptLanguage(monaco);
@@ -66,7 +99,7 @@ export default function EditorPane({
           <div className="editor-toolbar__actions">
             {isRunnable && (
               <button className="toolbar-pill toolbar-pill--run" onClick={() => onRunFile?.(activeTab!)}>
-                ▶ Run
+                ▶ Compilar
               </button>
             )}
           </div>
@@ -80,6 +113,8 @@ export default function EditorPane({
             <ParseTreeViewer data={active.treeData!} />
           ) : isSymbolTableTab ? (
             <SymbolTableViewer data={active.symbolTableData!} />
+          ) : isTacTab ? (
+            <TacViewer data={active.tacData!} />
           ) : isMarkdown ? (
             <MarkdownViewer content={active.content} />
           ) : (
@@ -89,6 +124,10 @@ export default function EditorPane({
               theme={active.path.endsWith(".out") ? "compiscript-dark-out" : "compiscript-dark"}
               value={active.content}
               beforeMount={handleBeforeMount}
+              onMount={(editor) => {
+                editorRef.current = editor;
+                revealLocation(editor);
+              }}
               onChange={(val) => { if (val !== undefined) onChangeContent(active.path, val); }}
               options={{
                 fontSize: 12,
@@ -123,10 +162,10 @@ function Welcome() {
   return (
     <div className="editor-welcome">
       <div className="editor-welcome__badge">Compiscript</div>
-      <p className="editor-welcome__sub">Lexical &amp; Syntax Analysis</p>
+      <p className="editor-welcome__sub">Lexical, Syntax &amp; Semantic Analysis · Intermediate Code (TAC)</p>
       <div className="editor-welcome__hints">
         <Hint keys={["Ctrl", "S"]} label="Force save (auto-saves after 200ms)" />
-        <Hint keys={["▶ Run"]} label="Lex + parse the .cps file, show errors and parse tree" />
+        <Hint keys={["▶ Compilar"]} label="Analiza el archivo .cps: errores, árbol sintáctico, tabla de símbolos y TAC" />
       </div>
     </div>
   );

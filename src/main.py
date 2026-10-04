@@ -16,6 +16,10 @@ def main() -> None:
 
     print(result["status_message"])
 
+    if result["tac"] is not None:
+        print()
+        print("\n".join(result["tac"]))
+
 
 if __name__ == "__main__":
     main()

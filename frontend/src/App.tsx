@@ -3,7 +3,7 @@ import FileExplorer from "./components/Sidebar/FileExplorer";
 import EditorPane from "./components/Editor/EditorPane";
 import TerminalPane from "./components/Terminal/TerminalPane";
 import StatusBar from "./components/StatusBar/StatusBar";
-import type { FileNode, EditorTab } from "./types";
+import type { FileNode, EditorTab, CompilerDiagnostic, EditorLocation } from "./types";
 import { api } from "./api";
 import "./App.css";
  
@@ -17,6 +17,9 @@ export default function App() {
   const resizeStartY = useRef(0);
   const resizeStartH = useRef(0);
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [tacNotice, setTacNotice] = useState<string | null>(null);
+  const [diagnostics, setDiagnostics] = useState<CompilerDiagnostic[]>([]);
+  const [editorLocation, setEditorLocation] = useState<EditorLocation | null>(null);
  
   const appendTerminal = useCallback((line: string) => {
     setTerminalLines((prev) => [...prev, line]);
@@ -67,6 +70,10 @@ export default function App() {
       } else if (node.path.endsWith(".symbols")) {
         const symbolTableData = JSON.parse(content);
         setTabs((prev) => [...prev, { path: node.path, label: node.name, content: "", isDirty: false, symbolTableData }]);
+      } else if (node.path.endsWith(".tac")) {
+        // El .tac guardado solo existe si la corrida no tuvo errores
+        const tacData = { lines: content.replace(/\n$/, "").split("\n"), stats: null, errorCount: 0 };
+        setTabs((prev) => [...prev, { path: node.path, label: node.name, content: "", isDirty: false, tacData }]);
       } else {
         setTabs((prev) => [...prev, { path: node.path, label: node.name, content, isDirty: false }]);
       }
@@ -75,6 +82,23 @@ export default function App() {
       appendTerminal(`Error opening ${node.path}: ${e.message}`);
     }
   }, [tabs, appendTerminal]);
+
+  const goToDiagnostic = async (diagnostic: CompilerDiagnostic) => {
+    if (diagnostic.line === null || diagnostic.column === null) return;
+
+    await openFile({
+      name: diagnostic.path.split("/").pop() ?? diagnostic.path,
+      path: diagnostic.path,
+      isDir: false,
+    });
+
+    setEditorLocation((previous) => ({
+      path: diagnostic.path,
+      line: diagnostic.line!,
+      column: diagnostic.column!,
+      requestId: (previous?.requestId ?? 0) + 1,
+    }));
+  };
  
   const closeTab = useCallback((path: string) => {
     setTabs((prev) => {
@@ -100,7 +124,7 @@ export default function App() {
  
   const saveTab = useCallback(async (path: string) => {
     const tab = tabs.find((t) => t.path === path);
-    if (!tab || tab.treeData || tab.symbolTableData) return; // read-only tabs
+    if (!tab || tab.treeData || tab.symbolTableData || tab.tacData) return; // pestañas de solo lectura
     try {
       await api.writeFile(path, tab.content);
       setTabs((prev) => prev.map((t) => t.path === path ? { ...t, isDirty: false } : t));
@@ -111,7 +135,7 @@ export default function App() {
     }
   }, [tabs, appendTerminal, refreshTree]);
  
-  // ── Run (lex + parse) ─────────────────────────────────────────────────────────
+  // ── Run (léxico, sintaxis, semántica y TAC) ───────────────────────────────────
   const runFile = useCallback(async (inputPath: string) => {
     const tab = tabs.find((t) => t.path === inputPath);
     if (tab?.isDirty) {
@@ -124,13 +148,25 @@ export default function App() {
       }
     }
  
-    appendTerminal(`\n▶ Running ${inputPath}`);
+    appendTerminal(`\n▶ Compilando ${inputPath}`);
     try {
       const result = await api.run(inputPath);
+      setDiagnostics(result.errors.map((message) => {
+        const position = /en línea (\d+), columna (\d+):/.exec(message);
+
+        return {
+          path: inputPath,
+          message,
+          line: position ? Number(position[1]) : null,
+          column: position ? Number(position[2]) + 1 : null,
+        };
+      }));
       result.lines.forEach((l) => appendTerminal(l));
       const fileName = inputPath.split("/").pop() ?? "";
       const base = fileName.replace(/\.cps$/, "");
-      const saved = result.symbolTable ? ".out, .tree y .symbols" : ".out y .tree";
+      const saved = result.tac
+        ? ".out, .tree, .symbols y .tac"
+        : result.symbolTable ? ".out, .tree y .symbols" : ".out y .tree";
       appendTerminal(`── salida guardada en output/${base}/ (${saved}) ──`);
 
       if (result.tree) {
@@ -157,6 +193,51 @@ export default function App() {
         });
       }
  
+      const tacTabPath = `${inputPath}::tac`;
+      const savedTacPath = `output/${base}/${fileName}.tac`;
+
+      if (result.errors.length > 0 || result.tac === null) {
+        const count = result.errors.length;
+        const reason = count > 0
+          ? `${count} ${count === 1 ? "error" : "errores"}`
+          : "el compilador no devolvió TAC";
+
+        setTacNotice(
+          `${inputPath}: no se generó código intermedio (${reason}).`
+        );
+
+        setTabs((prev) => prev.filter(
+          (tab) => tab.path !== tacTabPath && tab.path !== savedTacPath
+        ));
+        setActiveTab(inputPath);
+      } else {
+        setTacNotice(null);
+
+        const tacTab: EditorTab = {
+          path: tacTabPath,
+          label: `${base} tac`,
+          content: "",
+          isDirty: false,
+          tacData: {
+            lines: result.tac,
+            stats: result.tacStats,
+            errorCount: 0,
+          },
+        };
+
+        setTabs((prev) => {
+          // Retira una vista del archivo guardado que podría estar vieja.
+          const updated = prev.filter((tab) => tab.path !== savedTacPath);
+          const index = updated.findIndex((tab) => tab.path === tacTabPath);
+          if (index >= 0) {
+            updated[index] = tacTab;
+            return updated;
+          }
+          return [...updated, tacTab];
+        });
+        setActiveTab(tacTabPath);
+      }
+
       await refreshTree();
     } catch (e: any) {
       appendTerminal(`Error: ${e.message}`);
@@ -164,7 +245,7 @@ export default function App() {
   }, [tabs, appendTerminal, refreshTree]);
  
   const activeTabData = tabs.find((t) => t.path === activeTab) ?? null;
-  const isCps = (activeTab?.endsWith(".cps") ?? false) && !activeTabData?.treeData && !activeTabData?.symbolTableData;
+  const isCps = (activeTab?.endsWith(".cps") ?? false) && !activeTabData?.treeData && !activeTabData?.symbolTableData && !activeTabData?.tacData;
  
   return (
     <div className="app-shell">
@@ -180,6 +261,11 @@ export default function App() {
       </aside>
  
       <div className="main-area">
+        {tacNotice && (
+          <div className="compile-notice" role="alert">
+            {tacNotice}
+          </div>
+        )}
         <EditorPane
           tabs={tabs}
           activeTab={activeTab}
@@ -188,13 +274,19 @@ export default function App() {
           onChangeContent={updateTabContent}
           onSave={saveTab}
           onRunFile={isCps ? runFile : undefined}
+          location={editorLocation}
         />
         <div className="resize-handle" onMouseDown={onResizeStart} />
         <TerminalPane
-            lines={terminalLines}
-            onClear={() => setTerminalLines([])}
-            height={terminalHeight}
-          />
+          lines={terminalLines}
+          onClear={() => {
+            setTerminalLines([]);
+            setDiagnostics([]);
+          }}
+          height={terminalHeight}
+          diagnostics={diagnostics}
+          onGoToDiagnostic={goToDiagnostic}
+        />
       </div>
  
       <StatusBar

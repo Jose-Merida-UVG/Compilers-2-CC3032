@@ -1,0 +1,16 @@
+let a: integer = 1;
+let b: integer = 2;
+let f: float = 1.5;
+let c1 = a < b;
+let c2 = a <= b;
+let c3 = a > b;
+let c4 = a >= b;
+let c5 = a == b;
+let c6 = a != b;
+let c7 = a + 1 < b * 2;
+let c8 = a < f;
+let c9 = f >= 2;
+let s1 = "x" == "y";
+let t1 = true;
+let t2 = t1 != false;
+print(c1);
