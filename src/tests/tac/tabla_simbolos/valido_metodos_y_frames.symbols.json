@@ -1,0 +1,264 @@
+{
+  "kind": "GLOBAL",
+  "owner": null,
+  "symbols": [
+    {
+      "name": "Cuenta",
+      "kind": "CLASS",
+      "type": "Cuenta",
+      "line": 1,
+      "column": 0,
+      "size": 4,
+      "offset": null,
+      "address": null,
+      "label": "Cuenta",
+      "tac_name": "Cuenta"
+    },
+    {
+      "name": "total",
+      "kind": "FUNCTION",
+      "type": "(Cuenta, integer) -> integer",
+      "line": 10,
+      "column": 0,
+      "size": null,
+      "offset": null,
+      "address": null,
+      "label": "total",
+      "tac_name": "total"
+    },
+    {
+      "name": "c",
+      "kind": "VARIABLE",
+      "type": "Cuenta",
+      "line": 14,
+      "column": 0,
+      "size": 4,
+      "offset": 0,
+      "address": "gp+0",
+      "label": null,
+      "tac_name": "c"
+    }
+  ],
+  "children": [
+    {
+      "kind": "CLASS",
+      "owner": "Cuenta",
+      "symbols": [
+        {
+          "name": "saldo",
+          "kind": "VARIABLE",
+          "type": "integer",
+          "line": 2,
+          "column": 4,
+          "size": 4,
+          "offset": 0,
+          "address": "this+0",
+          "label": null,
+          "tac_name": "saldo"
+        },
+        {
+          "name": "constructor",
+          "kind": "FUNCTION",
+          "type": "(integer) -> void",
+          "line": 3,
+          "column": 4,
+          "size": null,
+          "offset": null,
+          "address": null,
+          "label": "Cuenta.constructor",
+          "tac_name": "Cuenta.constructor"
+        },
+        {
+          "name": "depositar",
+          "kind": "FUNCTION",
+          "type": "(integer) -> integer",
+          "line": 4,
+          "column": 4,
+          "size": null,
+          "offset": null,
+          "address": null,
+          "label": "Cuenta.depositar",
+          "tac_name": "Cuenta.depositar"
+        }
+      ],
+      "children": [
+        {
+          "kind": "FUNCTION",
+          "owner": "constructor",
+          "symbols": [
+            {
+              "name": "inicial",
+              "kind": "PARAMETER",
+              "type": "integer",
+              "line": 3,
+              "column": 4,
+              "size": 4,
+              "offset": 4,
+              "address": "fp+12",
+              "label": null,
+              "tac_name": "inicial"
+            }
+          ],
+          "children": [
+            {
+              "kind": "BLOCK",
+              "owner": null,
+              "symbols": [],
+              "children": []
+            }
+          ],
+          "frame": {
+            "label": "Cuenta.constructor",
+            "params_size": 8,
+            "locals_size": 0,
+            "temps": 0,
+            "temps_size": 0,
+            "saved_size": 8,
+            "total_size": 16
+          }
+        },
+        {
+          "kind": "FUNCTION",
+          "owner": "depositar",
+          "symbols": [
+            {
+              "name": "monto",
+              "kind": "PARAMETER",
+              "type": "integer",
+              "line": 4,
+              "column": 4,
+              "size": 4,
+              "offset": 4,
+              "address": "fp+12",
+              "label": null,
+              "tac_name": "monto"
+            }
+          ],
+          "children": [
+            {
+              "kind": "BLOCK",
+              "owner": null,
+              "symbols": [
+                {
+                  "name": "nuevo",
+                  "kind": "VARIABLE",
+                  "type": "integer",
+                  "line": 5,
+                  "column": 8,
+                  "size": 4,
+                  "offset": 0,
+                  "address": "fp-4",
+                  "label": null,
+                  "tac_name": "nuevo"
+                }
+              ],
+              "children": []
+            }
+          ],
+          "frame": {
+            "label": "Cuenta.depositar",
+            "params_size": 8,
+            "locals_size": 4,
+            "temps": 1,
+            "temps_size": 4,
+            "saved_size": 8,
+            "total_size": 24
+          }
+        }
+      ],
+      "layout": {
+        "size": 4,
+        "parent": null,
+        "fields": [
+          {
+            "name": "saldo",
+            "offset": 0,
+            "size": 4,
+            "inherited": false
+          }
+        ],
+        "methods": [
+          {
+            "name": "constructor",
+            "label": "Cuenta.constructor",
+            "overrides": null
+          },
+          {
+            "name": "depositar",
+            "label": "Cuenta.depositar",
+            "overrides": null
+          }
+        ]
+      }
+    },
+    {
+      "kind": "FUNCTION",
+      "owner": "total",
+      "symbols": [
+        {
+          "name": "c",
+          "kind": "PARAMETER",
+          "type": "Cuenta",
+          "line": 10,
+          "column": 0,
+          "size": 4,
+          "offset": 0,
+          "address": "fp+8",
+          "label": null,
+          "tac_name": "c"
+        },
+        {
+          "name": "extra",
+          "kind": "PARAMETER",
+          "type": "integer",
+          "line": 10,
+          "column": 0,
+          "size": 4,
+          "offset": 4,
+          "address": "fp+12",
+          "label": null,
+          "tac_name": "extra"
+        }
+      ],
+      "children": [
+        {
+          "kind": "BLOCK",
+          "owner": null,
+          "symbols": [
+            {
+              "name": "t",
+              "kind": "VARIABLE",
+              "type": "integer",
+              "line": 11,
+              "column": 4,
+              "size": 4,
+              "offset": 0,
+              "address": "fp-4",
+              "label": null,
+              "tac_name": "t"
+            }
+          ],
+          "children": []
+        }
+      ],
+      "frame": {
+        "label": "total",
+        "params_size": 8,
+        "locals_size": 4,
+        "temps": 1,
+        "temps_size": 4,
+        "saved_size": 8,
+        "total_size": 24
+      }
+    }
+  ],
+  "frame": {
+    "label": "__main",
+    "params_size": 0,
+    "locals_size": 0,
+    "temps": 1,
+    "temps_size": 4,
+    "saved_size": 8,
+    "total_size": 12
+  }
+}
