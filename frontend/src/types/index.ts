@@ -128,3 +128,19 @@ export interface EditorTab {
   /** Tras Run (o al abrir un .tac): se muestra con el TacViewer. */
   tacData?: TacData;
 }
+
+/** Error del análisis y su ubicación en el archivo fuente. */
+export interface CompilerDiagnostic {
+  path: string;
+  message: string;
+  line: number | null;
+  column: number | null;
+}
+
+/** Solicitud de navegación a una posición del editor. */
+export interface EditorLocation {
+  path: string;
+  line: number;
+  column: number;
+  requestId: number;
+}

@@ -63,3 +63,51 @@
 .terminal-line.match   { color: var(--color-success); }
 .terminal-line.success { color: var(--color-info); }
 .terminal-line.info    { color: var(--accent-text); }
+
+.diagnostics {
+  margin-bottom: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.diagnostics__title {
+  margin: 0 0 8px;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.diagnostics__item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  margin-bottom: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  color: var(--color-error);
+  font: inherit;
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.diagnostics__item:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.diagnostics__item:focus-visible {
+  outline: 2px solid var(--accent-text);
+  outline-offset: 2px;
+}
+
+.diagnostics__item:disabled {
+  cursor: default;
+}
+
+.diagnostics__file {
+  color: var(--text-muted);
+  font-size: 11px;
+}

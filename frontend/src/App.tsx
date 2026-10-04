@@ -3,7 +3,7 @@ import FileExplorer from "./components/Sidebar/FileExplorer";
 import EditorPane from "./components/Editor/EditorPane";
 import TerminalPane from "./components/Terminal/TerminalPane";
 import StatusBar from "./components/StatusBar/StatusBar";
-import type { FileNode, EditorTab } from "./types";
+import type { FileNode, EditorTab, CompilerDiagnostic, EditorLocation } from "./types";
 import { api } from "./api";
 import "./App.css";
  
@@ -18,6 +18,8 @@ export default function App() {
   const resizeStartH = useRef(0);
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [tacNotice, setTacNotice] = useState<string | null>(null);
+  const [diagnostics, setDiagnostics] = useState<CompilerDiagnostic[]>([]);
+  const [editorLocation, setEditorLocation] = useState<EditorLocation | null>(null);
  
   const appendTerminal = useCallback((line: string) => {
     setTerminalLines((prev) => [...prev, line]);
@@ -80,6 +82,23 @@ export default function App() {
       appendTerminal(`Error opening ${node.path}: ${e.message}`);
     }
   }, [tabs, appendTerminal]);
+
+  const goToDiagnostic = async (diagnostic: CompilerDiagnostic) => {
+    if (diagnostic.line === null || diagnostic.column === null) return;
+
+    await openFile({
+      name: diagnostic.path.split("/").pop() ?? diagnostic.path,
+      path: diagnostic.path,
+      isDir: false,
+    });
+
+    setEditorLocation((previous) => ({
+      path: diagnostic.path,
+      line: diagnostic.line!,
+      column: diagnostic.column!,
+      requestId: (previous?.requestId ?? 0) + 1,
+    }));
+  };
  
   const closeTab = useCallback((path: string) => {
     setTabs((prev) => {
@@ -132,6 +151,16 @@ export default function App() {
     appendTerminal(`\n▶ Compilando ${inputPath}`);
     try {
       const result = await api.run(inputPath);
+      setDiagnostics(result.errors.map((message) => {
+        const position = /en línea (\d+), columna (\d+):/.exec(message);
+
+        return {
+          path: inputPath,
+          message,
+          line: position ? Number(position[1]) : null,
+          column: position ? Number(position[2]) + 1 : null,
+        };
+      }));
       result.lines.forEach((l) => appendTerminal(l));
       const fileName = inputPath.split("/").pop() ?? "";
       const base = fileName.replace(/\.cps$/, "");
@@ -245,13 +274,19 @@ export default function App() {
           onChangeContent={updateTabContent}
           onSave={saveTab}
           onRunFile={isCps ? runFile : undefined}
+          location={editorLocation}
         />
         <div className="resize-handle" onMouseDown={onResizeStart} />
         <TerminalPane
-            lines={terminalLines}
-            onClear={() => setTerminalLines([])}
-            height={terminalHeight}
-          />
+          lines={terminalLines}
+          onClear={() => {
+            setTerminalLines([]);
+            setDiagnostics([]);
+          }}
+          height={terminalHeight}
+          diagnostics={diagnostics}
+          onGoToDiagnostic={goToDiagnostic}
+        />
       </div>
  
       <StatusBar
