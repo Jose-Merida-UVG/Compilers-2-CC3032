@@ -1,50 +1,11 @@
-"""CoreMixin: TAC para declaraciones, asignaciones, expresiones y print.
+"""CoreMixin: TAC de declaraciones, asignaciones, expresiones, arreglos y print.
 
-Reglas de la gramática que implementa (ver docs/proyecto2/00-contrato.md
-§4.1): variableDeclaration, constantDeclaration, assignment,
-expressionStatement, printStatement, AssignExpr, literalExpr, primaryExpr,
-IdentifierExpr, additiveExpr, multiplicativeExpr, unaryExpr, relationalExpr,
-equalityExpr, logicalOrExpr, logicalAndExpr, TernaryExpr, gen_cond,
-arrayLiteral e IndexExpr (más gen_index_load/gen_index_store/gen_len).
-
-Convención: cada visit de expresión devuelve un *operando* (str): una
-variable, un temporal `$tN` o una constante literal. Quien consume un
-operando lo libera con `self.e.free(op)` apenas emite la instrucción que lo
-usa (reciclaje de temporales, contrato §4.2).
-
-Depende solo de la API del contrato: `self.e` (Emitter), `self.expr`,
-`self.type_of`, `self.symbol_of`, `self.name_of`.
-
-── Notas para quien integre (Cami: esqueleto/checker, Tono: funciones y
-   clases) ─────────────────────────────────────────────────────────────
-
-1. Anotaciones del checker: sobrescribir solo `visit()` NO basta. El
-   visitor por defecto (`visitChildren`, p. ej. en `statement`) llama
-   `child.accept()` directo y se salta `visit()`; hay que sobrescribir
-   también `visitChildren` para que pase por `self.visit(child)`. Sin eso
-   faltan tipos/ámbitos en declaraciones y sentencias.
-2. `symbol_of(ctx)` se llama con: IdentifierExpr, variableDeclaration,
-   constantDeclaration, assignment (forma simple) y, para AssignExpr con
-   identificador simple, el `leftHandSide` (`lhs`). Si devuelve None se
-   usa el texto del identificador (sin renombrar por sombreado).
-3. `type_of(ctx)` se usa para la promoción integer->float (`itof`); si
-   devuelve None simplemente no se promueve.
-4. Una expresión `void` (llamada a función sin retorno) puede devolver
-   None desde `visit`; `expressionStatement` solo libera si hay operando.
-5. `gen_cond(ctx, ltrue, lfalse, fall=None)`: `fall` es opcional (la
-   etiqueta que el llamador coloca justo después; evita un `goto`
-   redundante). La versión por defecto de `gen_cond` del esqueleto debe
-   vivir en una clase base listada DESPUÉS de los mixins
-   (`class TACGenerator(CoreMixin, ..., BaseGen, CompiscriptVisitor)`);
-   si se define en `TACGenerator` mismo tapa a la de este mixin.
-6. Arreglos: `visitIndexExpr` devuelve solo el operando del ÍNDICE. La
-   cadena `leftHandSide` (Tono) debe hacer, por cada sufijo `[ ]`,
-   `base = self.gen_index_load(base, self.visit(sufijo))`. Para destinos
-   de asignación con llamadas/propiedades antes del último sufijo
-   (`obj.items[i] = v`), este mixin llama a `self.eval_chain(lhs, n)`:
-   Tono lo expone (evalúa `primaryAtom` y los primeros `n` sufijos).
-7. `visitAssignExpr` y `visitAssignment` no tocan temporales ajenos:
-   devuelven la variable asignada (no es temporal, `free` es no-op).
+Cada visit de expresión devuelve un operando (variable, temporal `$tN` o
+constante). Quien consume un operando lo libera con `self.e.free` apenas emite
+la instrucción que lo usa, y pide el temporal del resultado después, para que
+`$t1 = $t1 + $t2` reutilice. Las condiciones no materializan booleanos: pasan
+por `gen_cond`, que salta con cortocircuito en `&&`/`||`. `visitIndexExpr` solo
+evalúa el índice; la cadena `leftHandSide` (gen_classes.py) hace la carga.
 """
 
 from __future__ import annotations
@@ -161,6 +122,9 @@ class CoreMixin:
             value = self._coerce(
                 value, self.type_of(exprs[0]), symbol.type if symbol is not None else None
             )
+            # Un campo de la clase usado sin `this.` se escribe en el objeto
+            if symbol is not None and self._in_class_scope(symbol):
+                name = f"this.{symbol.name}"
             self.e.emit(f"{name} = {value}")
             self.e.free(value)
             return None
@@ -186,6 +150,10 @@ class CoreMixin:
                 self.type_of(ctx.assignmentExpr()),
                 symbol.type if symbol is not None else None,
             )
+            if symbol is not None and self._in_class_scope(symbol):
+                # Campo sin `this.`: el resultado es el valor, que libera quien lo use
+                self.e.emit(f"this.{symbol.name} = {value}")
+                return value
             self.e.emit(f"{name} = {value}")
             self.e.free(value)
             return name  # variable, no temporal
@@ -212,10 +180,8 @@ class CoreMixin:
         return self._coerce(value, self.type_of(ctx.assignmentExpr()), self.type_of(lhs))
 
     def _eval_prefix(self, lhs, count: int) -> str:
-        """Valor de `primaryAtom` más los primeros `count` sufijos de una
-        cadena. Si son todos índices (`m[i][j]`) se resuelve aquí; si hay
-        llamadas o propiedades en medio se delega en `eval_chain` (Tono,
-        dueño de la cadena `leftHandSide`)."""
+        """Operando del átomo más los primeros `count` sufijos. Los índices
+        puros (`m[i][j]`) se resuelven aquí; el resto, en `eval_chain`."""
         prefix = lhs.suffixOp()[:count]
         if all(isinstance(sf, CompiscriptParser.IndexExprContext) for sf in prefix):
             base = self.visit(lhs.primaryAtom())
@@ -489,8 +455,7 @@ class CoreMixin:
         return t
 
     def visitIndexExpr(self, ctx: CompiscriptParser.IndexExprContext):
-        # Solo evalúa el índice. La cadena `leftHandSide` (Tono) lleva la
-        # base y llama a `gen_index_load(base, indice)`.
+        # Solo el índice; la base la lleva la cadena leftHandSide
         return self.expr(ctx.expression())
 
     def gen_index_load(self, base: str, index: str) -> str:

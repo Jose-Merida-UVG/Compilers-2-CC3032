@@ -1,49 +1,21 @@
-"""ControlMixin: TAC para sentencias de control de flujo.
+"""ControlMixin: TAC de if, ciclos, switch, break/continue y try/catch.
 
-Reglas de la gramática que implementa (docs/proyecto2/00-contrato.md
-§4.1): ifStatement, whileStatement, doWhileStatement, forStatement,
-foreachStatement, switchStatement (con switchCase/defaultCase),
-breakStatement, continueStatement y tryCatchStatement.
+Toda condición pasa por `gen_cond(cond, ltrue, lfalse, fall)`; `fall` es la
+etiqueta que se coloca justo después, para no emitir `goto` sobrantes. Cada
+ciclo apila sus etiquetas en `break_labels` / `continue_labels` mientras genera
+el cuerpo. El try/catch solo marca la región protegida (no hay `throw`):
 
-Toda condición pasa por `self.gen_cond(cond, ltrue, lfalse, fall)` (ver
-gen_core.py): se pasa en `fall` la etiqueta que se colocará justo después,
-para que no sobren `goto`. Las etiquetas que solo pueden estar sin
-referenciar (cuerpo, `else`, fin del bucle) se colocan con
-`self._label_if_used`; las de inicio de bucle siempre se colocan porque
-el salto de regreso las referencia.
-
-`break`/`continue` leen los extremos de las pilas `self.break_labels` y
-`self.continue_labels` (listas creadas por el esqueleto de Cami); cada
-bucle apila sus etiquetas mientras genera el cuerpo.
-
-try/catch: el lenguaje no tiene `throw`, así que el TAC solo marca la región
-protegida y el manejador:
-
-        try Lcatch          # si algo falla dentro, el control pasa a Lcatch
+        try Lcatch
         <bloque try>
         endtry
         goto Lend
     Lcatch:
-        catch e             # e = valor capturado (string)
+        catch e
         <bloque catch>
     Lend:
 
-`self.open_tries` cuenta los `try` abiertos en ese momento (se crea con la
-primera aparición; léase con `getattr(self, "open_tries", 0)`). `break` y
-`continue` emiten un `endtry` por cada `try` del que salen. NOTA PARA TONO:
-un `return` dentro de un `try` debe hacer lo mismo
-(`for _ in range(getattr(self, "open_tries", 0)): self.e.emit("endtry")`
-antes de `return`).
-
-Esquemas (L? = etiqueta nueva):
-
-    if (c) A else B        while (c) A            do A while (c)
-        <gen_cond c>       Lcond:                 Lbody:
-        A                      <gen_cond c>           A
-        goto Lend          Lbody:                 Lcond:
-    Lelse:                     A                      <gen_cond c>
-        B                      goto Lcond         Lend:
-    Lend:                  Lend:
+`open_tries` cuenta los `try` abiertos: `break`, `continue` y `return` emiten un
+`endtry` por cada uno del que salen.
 """
 
 from __future__ import annotations
