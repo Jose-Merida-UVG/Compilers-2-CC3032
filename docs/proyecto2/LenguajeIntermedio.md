@@ -512,3 +512,21 @@ constructor nunca se reporta como sobrescritura):
 * Pruebas: `make test` (golden por área en `src/tests/tac/`); regenerar con
   `UPDATE_GOLDEN=1 make test ARGS="src/tests/tac"` y **revisar el diff**.
 * Casos de demostración: `workspace/input/comp-tac/`.
+
+## 12. Cómo se implementa cada punto de la rúbrica
+
+| Punto (pts) | Cómo funciona | Código | Pruebas |
+|---|---|---|---|
+| Diseño del código intermedio (3) | TAC estilo *Dragon Book*: una línea de texto por instrucción (`x = y op z`, `goto`, `param`/`call`, `x[i]`) con temporales `$t` y etiquetas `L`. Este documento justifica las decisiones y muestra cada construcción con salida real. | `tac/instructions.py`, `tac/emitter.py` | `temporales/`, `test_tac_invariantes.py` |
+| Declaración y asignación (1) | `let`/`const` con inicializador emiten `x = valor`; sin inicializador no emiten nada. El sombreado se resuelve con nombres únicos por función (`x_1`). | `tac/gen_core.py` | `declaraciones/` |
+| Aritméticas (1) | Cada operador es una instrucción de tres direcciones, de izquierda a derecha según la gramática. Un entero usado como `float` pasa por `itof` y `+` entre strings concatena. | `tac/gen_core.py` | `aritmetica/` |
+| Lógicas (1) | Las condiciones se compilan a saltos; `&&` y `\|\|` hacen cortocircuito encadenando etiquetas y `!` las intercambia. Como valor se materializa `true`/`false`. | `tac/gen_core.py` (`gen_cond`) | `logicas/` |
+| Arreglos (1) | `newarray n` más un `t[i] = v` por elemento; `a[i]` es una carga o un almacenamiento y `len` lo usa `foreach`. Los multidimensionales son arreglos de arreglos. | `tac/gen_core.py` | `arreglos/` |
+| Sentencias de control (3) | Ciclos e `if` son etiquetas y saltos, con la condición invertida para ahorrar un `goto`. `foreach` fija dos temporales (longitud e índice), `switch` evalúa una vez y cae de un caso al siguiente, y `break`/`continue` saltan a una pila de etiquetas. | `tac/gen_control.py` | `control_flujo/` |
+| Funciones y parámetros (2) | Cada función es una unidad con su propio conjunto de temporales. Una llamada evalúa todos los argumentos, emite los `param` seguidos y luego `call f, n`; se agrega un `return` final si hace falta. | `tac/gen_functions.py` | `funciones/` |
+| Recursividad (2) | Es una llamada normal: el símbolo de la función ya existe al generar su cuerpo. Los temporales se reciclan entre llamadas anidadas (`fib(n-1) + fib(n-2)`). | `tac/gen_functions.py` | `recursividad/` |
+| Clases y objetos (2) | Una clase es una unidad con un `__init_fields` sintetizado y sus métodos, que reciben `this` primero. `new` reserva el objeto, inicializa los campos y llama al constructor; los campos son `obj.f`. | `tac/gen_classes.py` | `clases/` |
+| Herencia (2) | `__init_fields` llama primero al del padre y los campos heredados conservan su offset. Una llamada se resuelve a la etiqueta del ancestro más cercano que declara el método (sin despacho dinámico). | `tac/gen_classes.py`, `semantic/layout.py` | `herencia/` |
+| try y catch (2) | El TAC marca la región protegida con `try L` / `endtry` / `catch e`. `break`, `continue` y `return` emiten un `endtry` por cada `try` del que salen. | `tac/gen_control.py` | `try_catch/` |
+| Reciclaje de temporales (3) | `new_temp()` entrega el menor índice libre del conjunto de la función. Quien consume un operando lo libera justo después de emitir, y al cerrar cada función se detecta cualquier fuga. | `tac/emitter.py` | `temporales/`, `test_tac_invariantes.py` |
+| Tabla de símbolos (2) | Tras generar el TAC, `layout.py` da a cada símbolo tamaño, offset, dirección (`gp+`, `fp±`, `this+`) y nombre en el TAC. Cada función y `__main` recibe su registro de activación, y cada clase su layout de campos y métodos. | `semantic/layout.py`, `semantic/symbols.py` | `tabla_simbolos/` |
