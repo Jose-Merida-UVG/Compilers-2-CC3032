@@ -20,6 +20,8 @@ class CompiscriptErrorListener(ErrorListener):
     def __init__(self):
         super().__init__()
         self.errors = []
+        # (línea, columna) de cada texto que el lexer descartó
+        self._lexical_positions = []
 
     def syntaxError(self, recognizer, offendingSymbol, line, column, msg, e):
         if isinstance(recognizer, Lexer):
@@ -39,6 +41,7 @@ class CompiscriptErrorListener(ErrorListener):
         # relevant symbol.
         bad_text = bad_text.strip() or bad_text
 
+        self._lexical_positions.append((line, column))
         self.errors.append(
             f"Error léxico en línea {line}, columna {column}: "
             f"carácter o secuencia no reconocida '{bad_text}'."
@@ -46,7 +49,25 @@ class CompiscriptErrorListener(ErrorListener):
 
     # Syntax errors
 
+    def _caused_by_lexical_error(self, recognizer, offendingSymbol):
+        """Un error léxico deja un hueco en los tokens y el parser tropieza
+        con lo que queda pegado. Si el lexer descartó texto justo antes del
+        token inesperado, ese error sintáctico es consecuencia del léxico."""
+        if offendingSymbol is None or not self._lexical_positions:
+            return False
+        index = offendingSymbol.tokenIndex
+        if index > 0:
+            previous = recognizer.getTokenStream().get(index - 1)
+            previous_end = (previous.line, previous.column + len(previous.text))
+        else:
+            previous_end = (1, 0)
+        start = (offendingSymbol.line, offendingSymbol.column)
+        return any(previous_end <= pos < start for pos in self._lexical_positions)
+
     def _syntax_error(self, recognizer, offendingSymbol, line, column, msg, e):
+        if self._caused_by_lexical_error(recognizer, offendingSymbol):
+            return  # el error léxico ya se reportó; este sería un mensaje derivado
+
         found = self._describe_found(recognizer, offendingSymbol)
         expected_names = self._expected_names(recognizer)
 
