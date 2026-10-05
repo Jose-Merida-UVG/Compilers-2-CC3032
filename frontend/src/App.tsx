@@ -103,6 +103,16 @@ export default function App() {
     });
   }, [tabs, paneOf]);
 
+  // Si el panel con foco se quedó sin pestañas, el foco pasa al que sigue visible;
+  // si no, un archivo nuevo se abriría en el panel vacío y reviviría la división.
+  useEffect(() => {
+    const has = (p: Pane) => tabs.some((t) => (paneOf[t.path] ?? 0) === p);
+    setFocusedPane((f) => {
+      const other: Pane = f === 0 ? 1 : 0;
+      return !has(f) && has(other) ? other : f;
+    });
+  }, [tabs, paneOf]);
+
   // Mueve una pestaña al otro panel (si el otro está vacío, así se divide).
   const moveTab = useCallback((path: string) => {
     activate(path, paneFor(path) === 0 ? 1 : 0);
