@@ -35,7 +35,9 @@ def call_instruction(
     name: str,
     argument_count: int,
     target: str | None = None,
+    virtual: bool = False,
 ) -> str:
-    """Llamada con destino opcional; el conteo incluye this."""
-    call = f"call {name}, {argument_count}"
+    """Llamada con destino opcional; el conteo incluye this. `virtual` es la
+    llamada indirecta por la tabla de métodos (`name` es un temporal)."""
+    call = f"{'callvirt' if virtual else 'call'} {name}, {argument_count}"
     return f"{target} = {call}" if target is not None else call

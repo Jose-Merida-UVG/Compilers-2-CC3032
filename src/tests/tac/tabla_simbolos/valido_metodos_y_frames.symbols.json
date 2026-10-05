@@ -8,7 +8,7 @@
       "type": "Cuenta",
       "line": 1,
       "column": 0,
-      "size": 4,
+      "size": 8,
       "offset": null,
       "address": null,
       "label": "Cuenta",
@@ -51,8 +51,8 @@
           "line": 2,
           "column": 4,
           "size": 4,
-          "offset": 0,
-          "address": "this+0",
+          "offset": 4,
+          "address": "this+4",
           "label": null,
           "tac_name": "saldo"
         },
@@ -167,12 +167,12 @@
         }
       ],
       "layout": {
-        "size": 4,
+        "size": 8,
         "parent": null,
         "fields": [
           {
             "name": "saldo",
-            "offset": 0,
+            "offset": 4,
             "size": 4,
             "inherited": false
           }
@@ -181,12 +181,21 @@
           {
             "name": "constructor",
             "label": "Cuenta.constructor",
+            "slot": null,
             "overrides": null
           },
           {
             "name": "depositar",
             "label": "Cuenta.depositar",
+            "slot": 0,
             "overrides": null
+          }
+        ],
+        "vtable": [
+          {
+            "slot": 0,
+            "name": "depositar",
+            "label": "Cuenta.depositar"
           }
         ]
       }

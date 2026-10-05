@@ -1,23 +1,34 @@
-# Lenguaje intermedio de Compiscript (TAC)
+# Código intermedio (Proyecto 2)
 
-Especificación del código de tres direcciones que genera el compilador, con la
-justificación de las decisiones de diseño y ejemplos fuente → TAC. **Los ejemplos de
-TAC y los JSON de la tabla de símbolos son salida real del generador** (vienen
-de `src/tests/tac/<área>/valido_*.cps` con su `valido_*.tac` /
-`valido_*.symbols.json`; en los fragmentos se omiten líneas con `...` y se
-acomodó la fuente en columnas para leerla junto al TAC).
+Especificación del código de tres direcciones (TAC) que genera el compilador:
+formato, decisiones de diseño, traducción por construcción, reciclaje de
+temporales, tabla de símbolos para el código objeto y organización de `src/tac/`.
+Los ejemplos de TAC y los JSON de la tabla de símbolos son salida real del
+generador para los casos de `src/tests/tac/<área>/valido_*.cps` (y los
+`valido_*.symbols.json` de `tabla_simbolos/`); en los fragmentos se omiten líneas con `...` y la
+fuente se acomodó en columnas junto al TAC).
 
-> Alcance: el compilador solo *genera* TAC como texto. No lo ejecuta ni genera
-> código objeto. El TAC está pensado como entrada de la fase siguiente (MIPS),
-> por eso la tabla de símbolos guarda también tamaños, direcciones y registros
-> de activación (§9).
+Contexto: [`semantic.md`](semantic.md) (análisis previo) y
+[`ARCHITECTURE.md`](ARCHITECTURE.md) (pipeline completo).
 
-## 1. Qué es y por qué
+> **Alcance.** El compilador solo *genera* TAC como **texto**: no lo ejecuta ni
+> produce código objeto, y si el programa tiene cualquier error (léxico,
+> sintáctico o semántico) no se genera TAC.
+>
+> **Representación.** El libro (Aho et al., §6.2.2–6.2.3) define el TAC como
+> estructuras de datos: cuádruplas `(op, arg1, arg2, resultado)` o triplas. Aquí
+> **no se construyen**: cada instrucción es una línea de texto que el `Emitter`
+> agrega a una lista, porque lo que se entrega y se muestra es el texto (IDE y
+> archivo `.tac`). El formato es regular (§4), así que cada línea se descompone en
+> operador y operandos, pero la fase de MIPS tendrá que parsear el texto o
+> introducir cuádruplas. La tabla de símbolos sí guarda lo que esa fase
+> necesita: tamaños, direcciones y registros de activación (§9).
 
-El TAC (*three-address code*, código de tres direcciones) es una lista plana de
-instrucciones simples: cada una tiene a lo sumo **tres operandos**
-(`x = y OP z`). Las expresiones anidadas y las estructuras de control se
-descomponen en pasos pequeños con temporales, etiquetas y saltos.
+## 1. Formato
+
+Una lista plana de instrucciones, cada una con a lo sumo **tres operandos**
+(`x = y OP z`). Las expresiones anidadas y el control de flujo se descomponen en
+temporales, etiquetas y saltos:
 
 ```
 let y = x * 3 + 1;          $t1 = x * 3
@@ -25,22 +36,18 @@ let y = x * 3 + 1;          $t1 = x * 3
                             y = $t1
 ```
 
-Ventajas frente a ir directo del árbol a MIPS: el orden de evaluación queda
-explícito, el control de flujo es solo `goto`/etiquetas y la fase de código
-objeto no necesita conocer la sintaxis del lenguaje fuente.
-
 ## 2. Decisiones de diseño
 
 | Decisión | Elegido | Justificación |
 |---|---|---|
-| Sintaxis | Estilo *Dragon Book* / la vista en clase: `x = y op z`, `goto L`, `if x goto L`, `ifFalse x goto L`, `param`/`call`/`return`, `x[i]` | Es el repertorio estándar; cada línea corresponde a una cuádrupla `(op, arg1, arg2, resultado)` escrita en texto. |
-| Representación | Una línea de texto por instrucción, una lista de líneas por función | El entregable es el texto (GUI y archivo `.tac`); el formato es regular, así que cada línea se descompone directamente en operador y operandos si una fase posterior lo necesita. |
-| Temporales | `$t1`, `$t2`… con prefijo `$` | El `$` no puede aparecer en un identificador del usuario: no hay colisiones. |
+| Sintaxis | Estilo *Dragon Book*: `x = y op z`, `goto L`, `if x goto L`, `ifFalse x goto L`, `param`/`call`/`return`, `x[i]` | Repertorio estándar; una línea por instrucción. |
+| Representación | Texto: una línea por instrucción, una lista de líneas por función (sin cuádruplas ni triplas, ver arriba) | El entregable es el texto; el formato regular permite descomponer cada línea si una fase posterior lo necesita. |
+| Temporales | `$t1`, `$t2`… | `$` no puede aparecer en un identificador del usuario. |
 | Etiquetas | `L1`, `L2`… únicas en todo el programa | Numeración creciente, sin reiniciar por función. |
-| Condiciones | Saltos directos (`if a < b goto L`), nunca se materializa un booleano si solo se usa para saltar | Menos instrucciones y menos temporales; `&&`/`||` con cortocircuito real. |
-| Top-level | Todo el código suelto va en `func __main():`, emitido al final | Un único punto de entrada; las funciones y clases quedan definidas antes. |
-| Llamadas | `param` por argumento y `call f, n` | Es la convención del curso y se traduce directo a una pila de argumentos en MIPS. |
-| Clases | Métodos como funciones con `this` como primer parámetro; `Clase.metodo` como etiqueta | Sin tablas virtuales: resolución estática (ver §10). |
+| Condiciones | Saltos directos (`if a < b goto L`); no se materializa un booleano si solo se usa para saltar | Menos instrucciones y temporales; `&&`/`||` con cortocircuito real. |
+| Top-level | Código suelto en `func __main():`, emitido al final | Un único punto de entrada; funciones y clases quedan definidas antes. |
+| Llamadas | `param` por argumento y `call f, n` | Se traduce directo a una pila de argumentos en MIPS. |
+| Clases | Métodos como funciones con `this` primero; etiqueta `Clase.metodo`. Cada clase declara una tabla de métodos (`vtable`) y las llamadas a método son indirectas (`callvirt`) | Un método sobrescrito se despacha según la clase real del objeto, no la del tipo estático (§6.12). |
 
 ## 3. Operandos y nombres
 
@@ -74,8 +81,11 @@ Nombres de unidades: funciones `f`, métodos `Clase.metodo`, constructor
 | `return x`, `return` | retorno |
 | `x = newarray n` | arreglo de `n` elementos |
 | `x[i] = y`, `x = y[i]`, `x = len y` | arreglos |
-| `x = new C` | reserva una instancia de `C` |
+| `x = new C` | reserva una instancia de `C` y guarda en su primera palabra (`this+0`) la tabla de métodos de `C` |
 | `x.f = y`, `x = y.f` | campos |
+| `vtable M1, M2, …` | dentro de `class`: la tabla de métodos de la clase, un slot por etiqueta (el slot 0 es `M1`) |
+| `x = vtable y` | carga en `x` la tabla de métodos del objeto `y` |
+| `x = callvirt t, n`, `callvirt t, n` | llamada indirecta: `t` contiene la dirección del método (una entrada de la tabla); `n` cuenta `this` |
 | `print x` | `print(...)` del lenguaje |
 | `try L` / `endtry` / `catch e` | región protegida (§6.8) |
 | `func f(p1, p2):` … `endfunc` | función; métodos: `func Clase.m(this, p1):` |
@@ -83,6 +93,25 @@ Nombres de unidades: funciones `f`, métodos `Clase.metodo`, constructor
 
 Formato: etiquetas y `func`/`endfunc`/`class`/`endclass` pegados a la izquierda;
 el resto de instrucciones con 4 espacios de sangría (indentación).
+
+**Relación con el libro** (Aho et al., 2.ª ed., §6.2.1). Se usan las formas 1 a 8
+del libro: asignación binaria y unaria (incluida la conversión de tipo), copia,
+`goto`, `if x goto`, `ifFalse x goto`, `if x relop y goto`, `param`/`call p, n`/
+`y = call p, n`/`return y` y la copia indexada. Como en el libro, `n` en `call`
+no es redundante y se conserva. Las formas de dirección y puntero (`&`, `*`) no se
+usan. Lo que **no está en el libro** y se agregó porque el lenguaje lo necesita:
+
+| Extensión | Motivo |
+|---|---|
+| `newarray n`, `len y` | crear un arreglo y conocer su tamaño (`foreach`) |
+| `vtable`, `x = vtable y`, `callvirt` | despacho dinámico de métodos; el libro habla de llamadas virtuales como llamadas indirectas (§12.2.1) pero no define una instrucción ni una tabla de métodos |
+| `new C`, `x.f` | instancias y campos; el libro los resuelve con direcciones base + desplazamiento (§6.3), aquí se deja al código objeto con el layout de la tabla de símbolos |
+| `print x` | `print(...)` del lenguaje |
+| `try L` / `endtry` / `catch e` | región protegida |
+| `func`/`endfunc`, `class`/`endclass` | agrupar el código por unidad |
+
+Dos diferencias de notación: la conversión se escribe `itof` y el menos unario
+`- y` (el libro usa `minus`), y los temporales llevan `$` (`$t1`).
 
 ## 5. Estructura de un programa
 
@@ -169,6 +198,11 @@ temporal.
 
 `[1, 2]` → `newarray` y un `t[i] = v` por elemento; `a[i]` es copia indexada;
 `len` lo usa `foreach`. Los multidimensionales son arreglos de arreglos.
+
+**Diferencia con el libro:** en `x = y[i]` del libro, `i` son *unidades de
+memoria* (el ejemplo 6.5 calcula `t2 = i * 8` y luego `a[t2]`). Aquí `i` es el
+**número de elemento**: el TAC no multiplica por el tamaño, lo hará el código
+objeto con el tamaño del elemento (§9).
 
 ```
 let a = [10, 20, 30, 40];              $t1 = newarray 4
@@ -296,7 +330,7 @@ que se libera antes de generar los cuerpos). Hay un `if v == c goto Lcase` por
 cada `case`, y después `goto Ldefault` (o `goto Lend` si no hay `default`). Los
 cuerpos van en orden y **cada caso cae en el siguiente**: no existe un `break`
 implícito ni una salida propia del `switch` (el ejemplo de
-`docs/DefinicionCompiscript.md` imprime "uno", "dos" y "otro" para `x = 1`).
+`docs/enunciados/DefinicionCompiscript.md` imprime "uno", "dos" y "otro" para `x = 1`).
 
 ```
 switch (x) {                           if x == 1 goto L1
@@ -460,8 +494,8 @@ let p = new Punto(3, 4);               $t1 = new Punto
                                        p = $t1
 ```
 
-Acceso y asignación de campos, y llamada a un método (el objeto va como primer
-`param`):
+Acceso y asignación de campos, y llamada a un método. El objeto va como primer
+`param` y el método se busca por su slot en la tabla del objeto (§6.12):
 
 ```
 print(p.x);                            $t1 = p.x
@@ -469,9 +503,11 @@ p.y = p.x + 1;                         print $t1
                                        $t1 = p.x
                                        $t1 = $t1 + 1
                                        p.y = $t1
-c.sumar(10)                            param c
+c.sumar(10)                            $t1 = vtable c
+                                       $t1 = $t1[0]
+                                       param c
                                        param 10
-                                       $t1 = call Contador.sumar, 2
+                                       $t1 = callvirt $t1, 2
 ```
 
 Las cadenas se evalúan de izquierda a derecha con un operando "base":
@@ -482,13 +518,22 @@ Las cadenas se evalúan de izquierda a derecha con un operando "base":
     $t1.valor = 5
 ```
 
-### 6.12 Herencia
+### 6.12 Herencia y despacho dinámico
 
-Los campos heredados conservan su offset (§9). `__init_fields` de la subclase
-llama primero al del padre. Una llamada `obj.m()` usa la etiqueta de la clase
-**más cercana hacia arriba** que declara `m`, a partir del tipo estático de
-`obj`: un método heredado se llama con la etiqueta del ancestro y uno
-sobrescrito con la de la subclase.
+Los campos heredados conservan su offset (§9) y `__init_fields` de la subclase
+llama primero al del padre.
+
+**Tabla de métodos.** Cada clase con métodos declara su tabla con una línea
+`vtable` al inicio de su unidad. Los slots del padre van primero y un método
+sobrescrito reutiliza el slot del ancestro, así que un mismo método tiene el mismo
+número de slot en toda la jerarquía. Los constructores y `__init_fields` no
+entran en la tabla: se llaman por su etiqueta (`call`).
+
+**Llamada a un método.** Se carga la tabla del objeto, se toma la entrada del slot
+(el slot sale del tipo estático) y se llama de forma indirecta. Como la tabla es
+la de la clase *real* del objeto, una variable de tipo `A` que guarda una `C`
+llama al método de `C`. Lo mismo vale para `this.m()` (o `m()`) dentro de un
+método de la clase padre.
 
 ```
 class A { var a: integer = 1; function quien() {…} function soloA() {…} }
@@ -496,6 +541,7 @@ class B : A { var b: integer = 2; function quien() {…} }
 class C : B { var c: integer = 3; … }
 
 class C : B:
+    vtable B.quien, A.soloA            slot 0 = quien (de B), slot 1 = soloA (de A)
 func C.__init_fields(this):
     param this
     call B.__init_fields, 1
@@ -503,8 +549,17 @@ func C.__init_fields(this):
     return
 endfunc
 
-x.quien()    →  param x ; $t1 = call B.quien, 1     (sobrescrito en B)
-x.soloA()    →  param x ; $t1 = call A.soloA, 1     (heredado de A)
+let x: A = new C();                    $t1 = new C                 (guarda la tabla de C)
+                                       …
+                                       x = $t1
+x.quien()                              $t1 = vtable x
+                                       $t1 = $t1[0]                (slot de quien)
+                                       param x
+                                       $t1 = callvirt $t1, 1
+x.soloA()                              $t1 = vtable x
+                                       $t1 = $t1[1]                (slot de soloA)
+                                       param x
+                                       $t1 = callvirt $t1, 1
 ```
 
 Si ni la clase ni sus ancestros declaran `constructor`, `new` solo llama a
@@ -522,7 +577,9 @@ Si ni la clase ni sus ancestros declaran `constructor`, `new` solo llama a
 
 Un temporal solo hace falta entre el momento en que se calcula y el momento en
 que se consume. Después queda libre y el siguiente resultado puede ocupar el
-mismo nombre. El algoritmo (implementado en `src/tac/emitter.py`):
+mismo nombre. El libro (§6.2.1) crea un nombre distinto por cada temporal y deja
+combinarlos para cuando se asignen registros; aquí el reciclaje se hace al
+generar. El algoritmo (implementado en `src/tac/emitter.py`):
 
 1. Cada función (y cada método) tiene su **propio pool** de temporales; se
    reinicia al abrir la unidad.
@@ -642,6 +699,11 @@ cada área redondeada a múltiplo de 4.
 `fp-(off+tamaño)`; campos `this+off`. Un método reserva el offset 0 de sus
 parámetros para `this`.
 
+**Objetos:** la primera palabra de toda instancia (`this+0`) guarda el puntero a la
+tabla de métodos de su clase, así que los campos empiezan en el offset 4 y una
+clase sin campos mide 4 bytes. Cada método del `layout` trae su `slot` y la clase
+trae su `vtable`.
+
 ```
         parámetros (los empuja el llamador)     fp+8 …
         ra guardado                             fp+4
@@ -670,40 +732,108 @@ el padre; los métodos indican qué etiqueta del ancestro sobrescriben (un
 constructor nunca se reporta como sobrescritura):
 
 ```json
-"layout": { "size": 16, "parent": "Animal",
-  "fields": [ {"name":"nombre","offset":0,"size":4,"inherited":true},
-              {"name":"patas","offset":4,"size":4,"inherited":true},
-              {"name":"vivo","offset":8,"size":1,"inherited":false},
-              {"name":"raza","offset":12,"size":4,"inherited":false} ],
-  "methods": [ {"name":"hablar","label":"Perro.hablar","overrides":"Animal.hablar"} ] }
+"layout": { "size": 20, "parent": "Animal",
+  "fields": [ {"name":"nombre","offset":4,"size":4,"inherited":true},
+              {"name":"patas","offset":8,"size":4,"inherited":true},
+              {"name":"vivo","offset":12,"size":1,"inherited":false},
+              {"name":"raza","offset":16,"size":4,"inherited":false} ],
+  "methods": [ {"name":"hablar","label":"Perro.hablar","slot":0,"overrides":"Animal.hablar"} ],
+  "vtable":  [ {"slot":0,"name":"hablar","label":"Perro.hablar"} ] }
 ```
 
-## 10. Supuestos y limitaciones
+## 10. El generador por dentro (`src/tac/`)
 
-* **Sin despacho dinámico.** La llamada a un método se resuelve por el tipo
-  estático. Si una variable de tipo `Animal` guarda un `Perro`, `a.hablar()`
-  llama a `Animal.hablar`; igual `this.hablar()` dentro de un método de la clase
-  padre. (Una vtable queda como extensión.)
+**Dónde encaja.** `compiler.analyze()` corre el `TACGenerator` sobre el mismo
+árbol, **solo si el checker terminó con cero errores**, y después
+`layout.assign_layout()` con los picos de temporales del emisor. Una excepción
+del generador se reporta como error interno en vez de tumbar el IDE, y en ese
+caso tampoco hay TAC.
+
+**Organización.** `TACGenerator(CoreMixin, ControlMixin, FunctionMixin,
+ClassMixin, CompiscriptVisitor)`: cada regla de la gramática la implementa **un
+solo** mixin, así que no se pisan. Las expresiones devuelven un *operando*
+(variable, temporal `$tN` o constante); quien lo consume lo libera con `free`
+justo después de emitir la instrucción que lo usa.
+
+| Archivo | Rol |
+|---|---|
+| `instructions.py` | Convenciones de formato: sangría, prefijos `$t` y `L`, nombre `__main`, cabeceras de `func`/`class`, instrucciones `call` y `callvirt`. |
+| `emitter.py` | `Emitter`: emite líneas, etiquetas únicas, pool de temporales por unidad (§8), pila de unidades, detector de fugas y `max_temps`. Renderiza las funciones primero y `__main` al final. |
+| `generator.py` | `TACGenerator`: une los mixins y ofrece `expr`, `type_of`, `symbol_of`, `scope_of`, `name_of` (nombres únicos por unidad: `x`, `x_1`…). |
+| `gen_core.py` | `CoreMixin`: declaraciones, asignaciones, aritmética (con `itof`), comparaciones, `&&`/`\|\|` con cortocircuito, ternario, arreglos, `print` y `gen_cond`. |
+| `gen_control.py` | `ControlMixin`: `if`/`else`, `while`, `do-while`, `for`, `foreach`, `switch`, `break`/`continue`, `try`/`catch`. |
+| `gen_functions.py` | `FunctionMixin`: funciones, parámetros, `return`, llamadas (`param`/`call`) y recursividad. |
+| `gen_classes.py` | `ClassMixin`: clases (línea `vtable` y `__init_fields` sintetizado), `new`, `this`, acceso a campos, la cadena de sufijos `leftHandSide` (`eval_chain`, que decide el slot de cada llamada a método) y herencia. |
+
+**Anotaciones del checker.** El generador no vuelve a inferir tipos ni resolver
+nombres: reutiliza `node_types`, `node_symbols`, `node_scopes` y
+`node_inner_scopes` que guardó el `SemanticChecker` por `id(ctx)`.
+`name_of(symbol)` resuelve el sombreado con nombres únicos por unidad.
+
+**Condiciones: `gen_cond(cond, ltrue, lfalse, fall)`.** Toda condición (de `if`,
+bucles, ternario, `&&`/`||` y `!`) pasa por aquí. Desciende la cadena de
+precedencia hasta el operador real y emite saltos directos, sin construir un
+booleano; `&&`/`||` encadenan etiquetas intermedias y `!` las intercambia.
+`fall` es la etiqueta que se colocará justo después: si coincide con una de las
+salidas se omite ese `goto` invirtiendo el operador relacional (§6.5).
+
+**Contratos entre mixins.** Quien necesita evaluar una expresión llama
+`self.expr(ctx)`, y quien necesita saltar según una condición llama `gen_cond`;
+nunca se reimplementa lo del otro. Los arreglos se reparten así: `CoreMixin`
+expone `gen_index_load`/`gen_index_store`, y `ClassMixin` expone
+`eval_chain(ctx, n)`, que `CoreMixin` usa en asignaciones como `a.b[i] = v`.
+`ControlMixin` lleva la cuenta de `try` abiertos (`open_tries`), y un `return`
+dentro de un `try` emite un `endtry` por cada uno.
+
+**IDE.** `/api/run` devuelve `tac` y `tacStats` (`instructions`, `temps`,
+`functions`), `None` ambos si hubo algún error. El visor **Código intermedio
+(TAC)** muestra numeración de líneas, resaltado de etiquetas, saltos,
+temporales y `func`/`endfunc`, y un botón para copiar; con errores no se abre y
+avisa que no se generó código. La **Tabla de símbolos** muestra además tamaño,
+offset y dirección de cada símbolo, el registro de activación de cada función y
+el layout de cada clase.
+
+## 11. Supuestos y limitaciones
+
+* **Despacho dinámico solo para métodos.** Las llamadas a método van por la tabla
+  del objeto (§6.12). El constructor y `__init_fields` se resuelven por la clase
+  nombrada, y no se valida que una sobrescritura tenga la misma firma (limitación
+  del checker, ver [`semantic.md`](semantic.md) §9).
 * **Cierres:** una función anidada que usa variables de la contenedora las
   nombra tal cual; el TAC no modela el entorno capturado.
-* `try/catch`: el TAC solo marca la región y el manejador; la fase de código
-  objeto decide cómo detectar la excepción.
+* `try/catch`: el lenguaje no tiene `throw`; el TAC solo marca la región y el
+  manejador, y la fase de código objeto decide cómo detectar la excepción.
 * `break`/`continue` solo existen dentro de bucles (restricción del enunciado), así
   que un `switch` no se puede abandonar con `break`: cada caso cae en el siguiente.
 * Una variable declarada sin inicializador no genera instrucción.
-* Si el programa tiene **cualquier** error (léxico, sintáctico o semántico) no
-  se genera TAC.
 
-## 11. Cómo producirlo y probarlo
+## 12. Cómo producirlo y probarlo
 
-* IDE: `make run` y ▶ Run sobre un `.cps`; las pestañas **tac** y **symbols**
-  muestran el resultado y se guarda `workspace/output/<archivo>/<archivo>.cps.tac`.
+* IDE: `make run` y **▶ Compilar** sobre un `.cps`; las vistas **Código
+  intermedio (TAC)** y **Tabla de símbolos** muestran el resultado y se guarda
+  `workspace/output/<nombre>/<nombre>.cps.tac`.
 * CLI: `make cli FILE=workspace/input/comp-tac/funciones-valido.cps`.
-* Pruebas: `make test` (golden por área en `src/tests/tac/`); regenerar con
-  `UPDATE_GOLDEN=1 make test ARGS="src/tests/tac"` y **revisar el diff**.
-* Casos de demostración: `workspace/input/comp-tac/`.
+* Casos de demostración: `workspace/input/comp-tac/` (un `<área>-valido.cps` y un
+  `<área>-invalido.cps` por cada fila de la rúbrica).
 
-## 12. Cómo se implementa cada punto de la rúbrica
+**Pruebas.** `src/tests/tac/<área>/` tiene una carpeta por punto de la rúbrica,
+con `valido_<caso>.cps` (debe compilar y generar TAC) e `invalido_<caso>.cps`
+(debe dar errores y **ningún** TAC). Además:
+
+| Archivo | Qué comprueba |
+|---|---|
+| `test_tac_casos.py` | todos los casos por `analyze()`, el camino real |
+| `test_tac_tono.py` | funciones, recursividad, clases, herencia y tabla de símbolos por `compile_tac`; asignación a propiedad como expresión; resolución estática de métodos (§11) |
+| `test_tac_invariantes.py` | propiedades de todo TAC válido: `param` antes de cada `call`, aridad, etiquetas definidas y usadas, `return` final, pico de temporales, sin fugas |
+| `test_cobertura_rubrica.py` | cada fila de la rúbrica tiene área, ≥3 casos válidos, ≥2 inválidos, las construcciones que nombra y demos |
+| `tabla_simbolos/` | JSON esperado de la tabla de símbolos (`valido_*.symbols.json`) y reglas de layout |
+| `temporales/` | emisor, reciclaje y compilación |
+
+Los `valido_*.symbols.json` se regeneran con
+`UPDATE_GOLDEN=1 make test ARGS="src/tests/tac/tabla_simbolos"`; revisar el diff
+a mano. `make test` corre la suite completa (466 pruebas).
+
+## 13. Cómo se implementa cada punto de la rúbrica
 
 | Punto (pts) | Cómo funciona | Código | Pruebas |
 |---|---|---|---|
@@ -715,8 +845,24 @@ constructor nunca se reporta como sobrescritura):
 | Sentencias de control (3) | Ciclos e `if` son etiquetas y saltos, con la condición invertida para ahorrar un `goto`. `foreach` fija dos temporales (longitud e índice), `switch` evalúa una vez y cae de un caso al siguiente, y `break`/`continue` saltan a una pila de etiquetas. | `tac/gen_control.py` | `control_flujo/` |
 | Funciones y parámetros (2) | Cada función es una unidad con su propio conjunto de temporales. Una llamada evalúa todos los argumentos, emite los `param` seguidos y luego `call f, n`; se agrega un `return` final si hace falta. | `tac/gen_functions.py` | `funciones/` |
 | Recursividad (2) | Es una llamada normal: el símbolo de la función ya existe al generar su cuerpo. Los temporales se reciclan entre llamadas anidadas (`fib(n-1) + fib(n-2)`). | `tac/gen_functions.py` | `recursividad/` |
-| Clases y objetos (2) | Una clase es una unidad con un `__init_fields` sintetizado y sus métodos, que reciben `this` primero. `new` reserva el objeto, inicializa los campos y llama al constructor; los campos son `obj.f`. | `tac/gen_classes.py` | `clases/` |
-| Herencia (2) | `__init_fields` llama primero al del padre y los campos heredados conservan su offset. Una llamada se resuelve a la etiqueta del ancestro más cercano que declara el método (sin despacho dinámico). | `tac/gen_classes.py`, `semantic/layout.py` | `herencia/` |
+| Clases y objetos (2) | Una clase es una unidad con un `__init_fields` sintetizado y sus métodos, que reciben `this` primero. `new` reserva el objeto (con la tabla de su clase en `this+0`), inicializa los campos y llama al constructor; los campos son `obj.f`. | `tac/gen_classes.py` | `clases/` |
+| Herencia (2) | `__init_fields` llama primero al del padre y los campos heredados conservan su offset. Cada clase declara su `vtable` (slots del padre primero, el override reutiliza el slot) y una llamada a método carga la tabla del objeto y usa `callvirt`, así que se ejecuta el método de la clase real. | `tac/gen_classes.py`, `semantic/layout.py` | `herencia/` |
 | try y catch (2) | El TAC marca la región protegida con `try L` / `endtry` / `catch e`. `break`, `continue` y `return` emiten un `endtry` por cada `try` del que salen. | `tac/gen_control.py` | `try_catch/` |
 | Reciclaje de temporales (3) | `new_temp()` entrega el menor índice libre del conjunto de la función. Quien consume un operando lo libera justo después de emitir, y al cerrar cada función se detecta cualquier fuga. | `tac/emitter.py` | `temporales/`, `test_tac_invariantes.py` |
 | Tabla de símbolos (2) | Tras generar el TAC, `layout.py` da a cada símbolo tamaño, offset, dirección (`gp+`, `fp±`, `this+`) y nombre en el TAC. Cada función y `__main` recibe su registro de activación, y cada clase su layout de campos y métodos. | `semantic/layout.py`, `semantic/symbols.py` | `tabla_simbolos/` |
+
+## 14. Autoría (Proyecto 2)
+
+El generador se escribió como un visitor aparte compuesto por cuatro *mixins*, y
+cada regla de la gramática tiene un solo dueño, así que cada integrante trabaja
+en archivos distintos. Este es el reparto del contrato de equipo (archivado en
+[`archive/00-contrato.md`](archive/00-contrato.md)); la referencia final de quién
+escribió cada línea es el historial de commits.
+
+| Integrante | Rúbrica P2 | Archivos | Reglas de la gramática |
+|---|---|---|---|
+| Camila Richter (`Cami`) | diseño del TAC (3), reciclaje de temporales (3), GUI | `instructions.py`, `emitter.py`, `generator.py`; parche de anotaciones en `checker.py`; integración en `compiler.py`, `main.py` y `server.py`; `frontend/`; `compile_tac` en `conftest.py` y pruebas de `temporales/` | `program`, `statement`, `block` |
+| Marinés García (`NESHGP04`) | declaraciones (1), aritmética (1), lógicas (1), arreglos (1), control de flujo (3), try/catch (2) | `gen_core.py`, `gen_control.py`; pruebas de sus áreas | declaraciones, asignaciones, `print`, expresiones y operadores, literales, arreglos, `if`, bucles, `switch`, `break`/`continue`, `try`/`catch` |
+| Jose Antonio Mérida (`TonitoMC`) | funciones (2), recursividad (2), clases (2), herencia (2), tabla de símbolos (2) | `gen_functions.py`, `gen_classes.py`, `layout.py`, `symbols.py`; pruebas de `funciones/`, `recursividad/`, `clases/`, `herencia/` y `tabla_simbolos/`; demos de `workspace/input/comp-tac/` | `functionDeclaration`, `returnStatement`, `CallExpr`, `classDeclaration`, `NewExpr`, `ThisExpr`, `PropertyAccessExpr`, `PropertyAssignExpr`, `leftHandSide` |
+
+Para ver el detalle de cualquier archivo: `git log --follow --format='%h %an %s' -- <ruta>`.

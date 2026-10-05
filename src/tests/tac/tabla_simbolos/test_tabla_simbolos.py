@@ -134,25 +134,39 @@ def test_class_layout_inherited_fields_keep_parent_offsets():
     b = _find(g, ScopeKind.CLASS, "B").layout
     c = _find(g, ScopeKind.CLASS, "C").layout
 
-    assert a["size"] == 8 and a["parent"] is None
+    # this+0 guarda el puntero a la tabla de métodos: los campos empiezan en 4
+    assert a["size"] == 12 and a["parent"] is None
     assert [(f["name"], f["offset"], f["inherited"]) for f in a["fields"]] == [
-        ("x", 0, False),
-        ("ok", 4, False),
+        ("x", 4, False),
+        ("ok", 8, False),
     ]
     # B conserva x y ok donde estaban y agrega y después del tamaño de A
     assert [(f["name"], f["offset"], f["inherited"]) for f in b["fields"]] == [
-        ("x", 0, True),
-        ("ok", 4, True),
-        ("y", 8, False),
+        ("x", 4, True),
+        ("ok", 8, True),
+        ("y", 12, False),
     ]
-    assert b["size"] == 12 and b["parent"] == "A"
-    assert [(f["name"], f["offset"]) for f in c["fields"]] == [("x", 0), ("ok", 4), ("y", 8), ("z", 12)]
-    assert c["size"] == 16 and c["parent"] == "B"
+    assert b["size"] == 16 and b["parent"] == "A"
+    assert [(f["name"], f["offset"]) for f in c["fields"]] == [("x", 4), ("ok", 8), ("y", 12), ("z", 16)]
+    assert c["size"] == 20 and c["parent"] == "B"
 
-    assert a["methods"] == [{"name": "f", "label": "A.f", "overrides": None}]
-    assert b["methods"] == [{"name": "f", "label": "B.f", "overrides": "A.f"}]
+    assert a["methods"] == [{"name": "f", "label": "A.f", "slot": 0, "overrides": None}]
+    assert b["methods"] == [{"name": "f", "label": "B.f", "slot": 0, "overrides": "A.f"}]
     assert c["methods"] == []
-    assert g.symbols["C"].size == 16  # el símbolo de la clase guarda su tamaño
+    assert g.symbols["C"].size == 20  # el símbolo de la clase guarda su tamaño
+
+
+def test_vtable_slots_are_inherited_and_overrides_reuse_them():
+    g = _layout(
+        "class A { function f(): integer { return 1; } function g(): integer { return 2; } }"
+        "class B : A { function g(): integer { return 3; } function h(): integer { return 4; } }"
+        "class C : B { function f(): integer { return 5; } }"
+        "let c = new C(); print(c.h());"
+    )
+    table = lambda name: [(e["slot"], e["label"]) for e in _find(g, ScopeKind.CLASS, name).layout["vtable"]]
+    assert table("A") == [(0, "A.f"), (1, "A.g")]
+    assert table("B") == [(0, "A.f"), (1, "B.g"), (2, "B.h")]  # g reutiliza el slot 1
+    assert table("C") == [(0, "C.f"), (1, "B.g"), (2, "B.h")]  # f reutiliza el slot 0
 
 
 def test_constructor_is_not_reported_as_override():
@@ -162,7 +176,8 @@ def test_constructor_is_not_reported_as_override():
         "let b = new B(1);"
     )
     methods = _find(g, ScopeKind.CLASS, "B").layout["methods"]
-    assert methods == [{"name": "constructor", "label": "B.constructor", "overrides": None}]
+    assert methods == [{"name": "constructor", "label": "B.constructor", "slot": None, "overrides": None}]
+    assert _find(g, ScopeKind.CLASS, "B").layout["vtable"] == []  # el constructor no es virtual
 
 
 def test_to_dict_exposes_new_fields_only_where_they_apply():

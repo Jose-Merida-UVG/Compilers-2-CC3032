@@ -1,3 +1,5 @@
+    > **Archivado.** Contrato de trabajo del equipo durante el P2 (reparto, API entre mixins, cronograma). Quedó superado por el código y por [`../tac.md`](../tac.md); se conserva solo como historial. Las cifras (por ejemplo "96 tests") son las de ese momento. Fue utilizado para planificación, el documento fue generado con IA.
+
 # Proyecto 2 — Contrato común (LEER PRIMERO, los tres)
 
 Entrega: **lunes 5 de octubre de 2026, 13:00**. Hoy es jueves 1. Equipo: Cami (cimientos + GUI), Nes (expresiones + control de flujo), Tono (funciones, clases, tabla de símbolos).
