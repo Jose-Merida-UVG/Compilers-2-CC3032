@@ -8,7 +8,6 @@ su propio documento; este solo muestra cómo encajan.
 | [`semantic.md`](semantic.md) | Proyecto 1: sistema de tipos, tabla de símbolos, checker, reglas, errores y pruebas |
 | [`tac.md`](tac.md) | Proyecto 2: lenguaje intermedio (TAC), reciclaje de temporales, layout de memoria, generador y pruebas |
 | [`enunciados/`](enunciados/) | Texto de los enunciados: definición del lenguaje y requisitos del P1 |
-| [`archive/`](archive/) | Material de trabajo ya superado (el contrato de equipo del P2) |
 
 ## Pipeline
 

@@ -48,6 +48,7 @@ let y = x * 3 + 1;          $t1 = x * 3
 | Top-level | Código suelto en `func __main():`, emitido al final | Un único punto de entrada; funciones y clases quedan definidas antes. |
 | Llamadas | `param` por argumento y `call f, n` | Se traduce directo a una pila de argumentos en MIPS. |
 | Clases | Métodos como funciones con `this` primero; etiqueta `Clase.metodo`. Cada clase declara una tabla de métodos (`vtable`) y las llamadas a método son indirectas (`callvirt`) | Un método sobrescrito se despacha según la clase real del objeto, no la del tipo estático (§6.12). |
+| Campos y memoria | `x.f = y`, `x = y.f`, sin aritmética de direcciones | Se desvía del libro (§6.3), que calcula `base + offset` en el TAC. Aquí el TAC conserva el nombre del campo y el offset lo resuelve el código objeto con el layout de la tabla de símbolos (§9). Evita que el TAC dependa de tamaños y de la arquitectura, y deja el cálculo de offsets (herencia incluida) en un solo lugar. |
 
 ## 3. Operandos y nombres
 
@@ -105,7 +106,7 @@ usan. Lo que **no está en el libro** y se agregó porque el lenguaje lo necesit
 |---|---|
 | `newarray n`, `len y` | crear un arreglo y conocer su tamaño (`foreach`) |
 | `vtable`, `x = vtable y`, `callvirt` | despacho dinámico de métodos; el libro habla de llamadas virtuales como llamadas indirectas (§12.2.1) pero no define una instrucción ni una tabla de métodos |
-| `new C`, `x.f` | instancias y campos; el libro los resuelve con direcciones base + desplazamiento (§6.3), aquí se deja al código objeto con el layout de la tabla de símbolos |
+| `new C`, `x.f` | instancias y campos; el libro los resuelve con direcciones base + desplazamiento (§6.3), aquí se deja al código objeto con el layout de la tabla de símbolos (ver §6.11) |
 | `print x` | `print(...)` del lenguaje |
 | `try L` / `endtry` / `catch e` | región protegida |
 | `func`/`endfunc`, `class`/`endclass` | agrupar el código por unidad |
@@ -510,6 +511,10 @@ c.sumar(10)                            $t1 = vtable c
                                        $t1 = callvirt $t1, 2
 ```
 
+El TAC no calcula direcciones de campos: `p.y` se queda como `p.y` y el código
+objeto lo convierte en `lw`/`sw offset(reg)` con el offset de `layout.py` (§9). El
+libro lo haría en el TAC con `t = p + 8` y `*t`; aquí se difiere a propósito (§2).
+
 Las cadenas se evalúan de izquierda a derecha con un operando "base":
 `a.siguiente.valor = 5;` →
 
@@ -691,6 +696,10 @@ cada símbolo con `size`, `offset`, `address` y `label`; cada ámbito de funció
 con su registro de activación (`frame`) y cada ámbito de clase con su `layout`.
 Aparece en el JSON del panel **symbols** y en `<archivo>.symbols`.
 
+Esto es lo que el TAC deja sin resolver a propósito: los offsets de campos, las
+direcciones de variables y parámetros y la posición de la tabla de métodos se
+toman de aquí al generar el código objeto.
+
 **Tamaños (MIPS32):** `integer` 4, `float` 4, `boolean` 1; `string`, arreglo,
 instancia, función y `null` son referencias de 4 bytes. Alineación natural y
 cada área redondeada a múltiplo de 4.
@@ -855,8 +864,7 @@ a mano. `make test` corre la suite completa (466 pruebas).
 
 El generador se escribió como un visitor aparte compuesto por cuatro *mixins*, y
 cada regla de la gramática tiene un solo dueño, así que cada integrante trabaja
-en archivos distintos. Este es el reparto del contrato de equipo (archivado en
-[`archive/00-contrato.md`](archive/00-contrato.md)); la referencia final de quién
+en archivos distintos. Este es el reparto acordado en el equipo; la referencia final de quién
 escribió cada línea es el historial de commits.
 
 | Integrante | Rúbrica P2 | Archivos | Reglas de la gramática |
