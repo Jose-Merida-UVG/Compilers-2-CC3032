@@ -12,6 +12,12 @@ import "./Editor.css";
 interface Props {
   tabs: EditorTab[];
   activeTab: string | null;
+  focused: boolean;
+  canMove: boolean;
+  moveLabel: string;
+  style?: React.CSSProperties;
+  onFocus: () => void;
+  onMoveTab: (p: string) => void;
   onSelectTab: (p: string) => void;
   onCloseTab: (p: string) => void;
   onChangeContent: (p: string, c: string) => void;
@@ -21,7 +27,7 @@ interface Props {
 }
 
 export default function EditorPane({
-  tabs, activeTab, onSelectTab, onCloseTab, onChangeContent, onSave, onRunFile, location,
+  tabs, activeTab, focused, canMove, moveLabel, style, onFocus, onMoveTab, onSelectTab, onCloseTab, onChangeContent, onSave, onRunFile, location,
 }: Props) {
   const active = tabs.find((t) => t.path === activeTab) ?? null;
   const isRunnable = !!onRunFile;
@@ -72,7 +78,13 @@ export default function EditorPane({
   };
 
   return (
-    <div className="editor-pane" onKeyDown={handleKeyDown}>
+    <div
+      className={`editor-pane ${focused ? "" : "editor-pane--unfocused"}`}
+      style={style}
+      onKeyDown={handleKeyDown}
+      onMouseDownCapture={onFocus}
+      onFocusCapture={onFocus}
+    >
       {/* Tab bar */}
       {tabs.length > 0 && (
         <div className="tab-bar">
@@ -97,6 +109,15 @@ export default function EditorPane({
         <div className="editor-toolbar">
           <span className="editor-toolbar__path">{active.path}</span>
           <div className="editor-toolbar__actions">
+            {canMove && (
+              <button
+                className="toolbar-pill"
+                title="Ver esta pestaña en el otro panel"
+                onClick={() => onMoveTab(active.path)}
+              >
+                {moveLabel}
+              </button>
+            )}
             {isRunnable && (
               <button className="toolbar-pill toolbar-pill--run" onClick={() => onRunFile?.(activeTab!)}>
                 ▶ Compilar
