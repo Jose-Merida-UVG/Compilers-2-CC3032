@@ -14,4 +14,8 @@ let r7 = x > y || x == 5;
 let r8 = a && b && c;
 let r9 = a || b || c;
 let r10 = x < y && (a || b) && !c;
+// ternario: ambas ramas dejan su valor en el mismo temporal
+let menor = x < y ? x : y;
+let etiqueta = a ? "si" : "no";
+let anidado = x < y ? (a ? 1 : 2) : 3;
 print(r1 && r2);

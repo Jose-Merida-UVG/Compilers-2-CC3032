@@ -57,8 +57,8 @@ while (i < 3) {
 for (let k: integer = 0; k < 2; k = k + 1) { print(k); }
 foreach (d in datos) { print(d); }
 switch (total) {
-    case 0: print("cero");
-    default: print("otro");
+    case 0: print("cero"); break;     // break salta al final del switch
+    default: print("otro");           // sin break, un caso cae en el siguiente
 }
 
 // --- try / catch: región protegida.

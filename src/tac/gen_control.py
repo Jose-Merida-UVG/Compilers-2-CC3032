@@ -3,7 +3,7 @@
 Toda condición pasa por `gen_cond(cond, ltrue, lfalse, fall)`; `fall` es la
 etiqueta que se coloca justo después, para no emitir `goto` sobrantes. Cada
 ciclo apila sus etiquetas en `break_labels` / `continue_labels` mientras genera
-el cuerpo. El try/catch solo marca la región protegida (no hay `throw`):
+el cuerpo; el switch solo apila la de `break`. El try/catch solo marca la región protegida (no hay `throw`):
 
         try Lcatch
         <bloque try>
@@ -37,7 +37,7 @@ class ControlMixin:
 
     def _state(self) -> dict:
         """Profundidad de `try` en el momento de apilar cada etiqueta de
-        break/continue (listas paralelas a break_labels/continue_labels).
+        break/continue (cada lista es paralela a break_labels/continue_labels).
         Creado perezosamente: un mixin no tiene __init__."""
         if not hasattr(self, "_ctl_state"):
             self._ctl_state = {"break": [], "continue": []}
@@ -180,15 +180,12 @@ class ControlMixin:
     # ── switch ──────────────────────────────────────────────────────────
     def visitSwitchStatement(self, ctx: CompiscriptParser.SwitchStatementContext):
         """El valor se evalúa una vez; una cadena de `if v == caso goto`
-        despacha, y cada caso termina con un `goto` al final del switch:
-        los casos son excluyentes, no caen en el siguiente. Ni el enunciado
-        ni la gramática definen la semántica, y `break` no existe en un
-        switch, así que sin este salto no habría forma de salir de un caso.
+        despacha, y los cuerpos van en orden: como en TypeScript, cada caso
+        cae en el siguiente salvo que termine en `break`.
 
-        `switch` NO es destino de `break`: la especificación del
-        proyecto limita `break`/`continue` a bucles (el checker lo
-        rechaza fuera de uno), así que dentro de un switch que está en
-        un bucle, `break`/`continue` se refieren a ese bucle."""
+        `break` dentro de un switch salta a su final (el switch apila su
+        etiqueta de salida). `continue` no: el switch no es un bucle, así
+        que `continue` se refiere al bucle que lo contiene."""
         cases = ctx.switchCase()
         default = ctx.defaultCase()
         case_labels = [self.e.new_label() for _ in cases]
@@ -205,18 +202,18 @@ class ControlMixin:
         self.e.free(value)  # ya no hace falta durante los cuerpos
         self._jump_to("", ldefault if ldefault is not None else lend)
 
-        for index, (case, label) in enumerate(zip(cases, case_labels)):
-            self.e.emit_label(label)
-            for stmt in case.statement():
-                self.visit(stmt)
-            # El último caso sin default ya queda justo antes de `lend`
-            last_falls_to_end = index == len(cases) - 1 and default is None
-            if not last_falls_to_end and not self._ends_with_jump(case):
-                self._jump_to("", lend)
-        if default is not None:
-            self.e.emit_label(ldefault)
-            for stmt in default.statement():
-                self.visit(stmt)
+        self._push_break(lend)
+        try:
+            for case, label in zip(cases, case_labels):
+                self.e.emit_label(label)
+                for stmt in case.statement():
+                    self.visit(stmt)
+            if default is not None:
+                self.e.emit_label(ldefault)
+                for stmt in default.statement():
+                    self.visit(stmt)
+        finally:
+            self._pop_break()
         self._label_if_used(lend)
         return None
 

@@ -19,7 +19,7 @@ Convención sugerida por carpeta:
 | `tipos/` | aritmética, lógicas, comparaciones, asignaciones, const inicializada |
 | `ambito/` | resolución de nombres, no declaradas, redeclaración, bloques anidados |
 | `funciones/` | argumentos, tipo de retorno, recursión, closures, redeclaración de función |
-| `control_flujo/` | condiciones boolean, break/continue en bucles, return en función |
+| `control_flujo/` | condiciones boolean, break en bucles y switch, continue en bucles, return en función |
 | `clases/` | atributos/métodos por `.`, constructor, `this` |
 | `arreglos/` | tipo de elementos, índices |
 | `generales/` | código muerto, expresiones sin sentido, declaraciones duplicadas |

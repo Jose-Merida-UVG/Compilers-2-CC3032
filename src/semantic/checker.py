@@ -57,6 +57,7 @@ class SemanticChecker(CompiscriptVisitor):
         self._function_return_stack: list[Type] = []
         self._chain_base: Optional[Type] = None
         self._loop_depth: int = 0
+        self._switch_depth: int = 0  # `break` (no `continue`) también vale en un switch
         self._class_stack: list[ClassType] = []
 
     def visit(self, tree):
@@ -802,6 +803,10 @@ class SemanticChecker(CompiscriptVisitor):
         self.symbols.enter_scope(ScopeKind.FUNCTION, owner=name)
         self.node_inner_scopes[id(ctx)] = self.symbols.current
         self._function_return_stack.append(return_type)
+        # Un `break`/`continue` dentro del cuerpo no puede salir de la función
+        # hacia un bucle o switch que la rodea: el cuerpo empieza en cero.
+        outer_depths = (self._loop_depth, self._switch_depth)
+        self._loop_depth = self._switch_depth = 0
         try:
             parameter_nodes = (
                 ctx.parameters().parameter() if ctx.parameters() else []
@@ -828,6 +833,7 @@ class SemanticChecker(CompiscriptVisitor):
             # closures fall out for free with no special-casing.
             self.visit(ctx.block())
         finally:
+            self._loop_depth, self._switch_depth = outer_depths
             self._function_return_stack.pop()
             self.symbols.exit_scope()
 
@@ -1046,6 +1052,7 @@ class SemanticChecker(CompiscriptVisitor):
         switch_type = self._visit_type(ctx.expression())
         self.symbols.enter_scope(ScopeKind.BLOCK)
         self.node_inner_scopes[id(ctx)] = self.symbols.current
+        self._switch_depth += 1
         try:
             for case_ctx in ctx.switchCase():
                 case_type = self._visit_type(case_ctx.expression())
@@ -1065,12 +1072,13 @@ class SemanticChecker(CompiscriptVisitor):
                 for stmt in ctx.defaultCase().statement():
                     self.visit(stmt)
         finally:
+            self._switch_depth -= 1
             self.symbols.exit_scope()
         return None
 
     def visitBreakStatement(self, ctx: CompiscriptParser.BreakStatementContext):
-        if self._loop_depth == 0:
-            self._error(ctx, "'break' solo puede usarse dentro de un bucle")
+        if self._loop_depth == 0 and self._switch_depth == 0:
+            self._error(ctx, "'break' solo puede usarse dentro de un bucle o un switch")
         return None
 
     def visitContinueStatement(self, ctx: CompiscriptParser.ContinueStatementContext):

@@ -123,6 +123,7 @@ estado en `self`, empujado antes de recursar y sacado en un `finally`:
 |---|---|---|---|
 | `_function_return_stack` | ¿qué tipo debe devolver este `return`? ¿hay función alrededor? | `visitFunctionDeclaration` | `visitReturnStatement` |
 | `_loop_depth` | ¿es legal un `break`/`continue` aquí? | los cuatro bucles | `visitBreakStatement`, `visitContinueStatement` |
+| `_switch_depth` | ¿es legal un `break` aquí aunque no haya bucle? | `visitSwitchStatement` | `visitBreakStatement` |
 | `_class_stack` | ¿a qué clase se refiere `this`? | `visitClassDeclaration` | `visitThisExpr` |
 | `_chain_base` | ¿de qué tipo es lo que quedó a la izquierda en `a.b[c].d`? | cada eslabón de la cadena | el siguiente eslabón |
 | `symbol.type` declarado | ¿qué tipo se espera de este inicializador? | `visitVariableDeclaration` | comparación con el tipo sintetizado |
@@ -190,7 +191,10 @@ condición, como se ejecuta. `for` abre su propio `Scope` para que
 `case` sea comparable con la expresión, **en ambas direcciones**, para que
 `switch (unEntero) { case unFloat: ... }` siga siendo válido por la promoción.
 
-**`break`/`continue`** reportan si `_loop_depth == 0`; **`return` fuera de
+**`break`** reporta si no hay bucle ni `switch` alrededor (`_loop_depth == 0` y
+`_switch_depth == 0`); **`continue`** si `_loop_depth == 0` (un `switch` no es un
+bucle); ambos contadores vuelven a cero al entrar al cuerpo de una función, así que un
+`break` dentro de una función declarada dentro de un bucle no se considera válido; **`return` fuera de
 función** si `_function_return_stack` está vacía.
 
 **Código muerto.** `visitBlock` recorre sus sentencias con una bandera; tras un
@@ -289,7 +293,7 @@ automatizadas; se verificaron a mano.
 | `[]` vacío | Entra en cualquier arreglo, pero no estrecha el símbolo permanentemente |
 | Índices de arreglo | Solo se valida el **tipo**; el tamaño no se conoce estáticamente |
 | `try`/`catch` | En el P1 solo se recorría. Con el P2 se declara la variable del `catch` (tipo `string`, visible solo en el manejador) y un `try`/`catch` cuenta como retorno garantizado si ambos bloques retornan |
-| `break`/`continue` | Solo dentro de bucles (restricción del enunciado); un `switch` no es destino de `break` |
+| `break`/`continue` | `continue` solo en bucles (restricción del enunciado). `break` en bucles y también en un `switch`, donde sale del `switch`, porque el lenguaje es un subconjunto de TypeScript |
 | Idioma de los mensajes | Español, con línea y columna, igual en las tres fases |
 | `let x = x + 1;` | La `x` de la derecha resuelve a la nueva declaración en vez de reportar "no declarada". Comportamiento conocido, no resuelto de forma definitiva |
 

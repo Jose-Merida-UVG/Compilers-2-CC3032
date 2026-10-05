@@ -329,16 +329,10 @@ L3:
 El valor del `switch` se evalúa **una sola vez** (queda en un temporal fijado
 que se libera antes de generar los cuerpos). Hay un `if v == c goto Lcase` por
 cada `case`, y después `goto Ldefault` (o `goto Lend` si no hay `default`). Los
-cuerpos van en orden y **cada uno termina con un `goto` al final del `switch`**: los
-casos son excluyentes y no caen en el siguiente, así que no hace falta `break`.
-
-*Es una interpretación nuestra.* El enunciado dice que Compiscript es un subconjunto
-de TypeScript "con algunas diferencias" y muestra el `switch` sin `break` ni salida;
-la gramática (`case expr: statement*`) tampoco define nada. En TypeScript los casos
-caen unos en otros hasta un `break`, pero aquí `break` y `continue` se limitan a los
-bucles (`SemanticAnalysis.md`), de modo que con caída libre no habría forma de salir
-de un caso. Se eligió la semántica excluyente. El último caso no lleva `goto` si no
-hay `default`, y tampoco el que ya termina en `return`/`break`/`continue`.
+cuerpos van en orden y, **como en TypeScript, cada caso cae en el siguiente salvo
+que termine en `break`**, que salta al final del `switch`. Compiscript es un
+subconjunto de TypeScript (`DefinicionCompiscript.md`), así que se sigue su
+semántica:
 
 ```
 switch (x) {                           if x == 1 goto L1
@@ -346,7 +340,21 @@ switch (x) {                           if x == 1 goto L1
     case 2: print("dos");              goto L3
     default: print("otro");        L1:
 }                                      print "uno"
-                                       goto L4
+                                   L2:
+                                       print "dos"
+                                   L3:
+                                       print "otro"
+```
+
+Con `x = 1` imprime "uno", "dos" y "otro". Con `break`:
+
+```
+switch (x) {                           if x == 1 goto L1
+    case 1: print("uno"); break;       if x == 2 goto L2
+    case 2: print("dos"); break;       goto L3
+    default: print("otro");        L1:
+}                                      print "uno"
+                                       goto L4          ← break: al final del switch
                                    L2:
                                        print "dos"
                                        goto L4
@@ -355,14 +363,21 @@ switch (x) {                           if x == 1 goto L1
                                    L4:
 ```
 
-**`break` y `continue` pertenecen solo a los bucles.** La especificación del
-proyecto los limita a bucles (el analizador semántico rechaza un `break` fuera
-de uno), así que el `switch` **no apila etiquetas**: dentro de un `switch` que
-está en un `while`, `for`, `do-while` o `foreach`, `break` y `continue` se
-refieren a ese bucle, no al `switch`. Cada bucle apila su par
+**Dónde valen `break` y `continue`.**
+
+| | bucles (`while`, `do-while`, `for`, `foreach`) | `switch` |
+|---|---|---|
+| `break` | sale del bucle | sale del `switch` |
+| `continue` | siguiente iteración | **no vale** (un `switch` no es un bucle) salvo que haya un bucle alrededor, y entonces es del bucle |
+
+El analizador semántico rechaza un `break` que no esté dentro de un bucle o de un
+`switch`, y un `continue` que no esté dentro de un bucle (el enunciado dice
+`break`/`continue` "sólo dentro de bucles"; permitir `break` en un `switch` es la
+extensión que exige la semántica de TypeScript). Cada bucle apila su par
 (`break` → etiqueta de salida, `continue` → etiqueta de continuación) mientras
-genera el cuerpo y lo desapila al terminar; `break`/`continue` son un `goto` al
-tope de esa pila.
+genera el cuerpo; el `switch` apila **solo** la de `break`. `break`/`continue` son
+un `goto` al tope de su pila. Por eso, dentro de un `switch` que está en un bucle,
+`break` sale del `switch` y `continue` sigue con el bucle:
 
 ```
 while (i < 6) {                    L1:
@@ -377,10 +392,11 @@ while (i < 6) {                    L1:
     }                                  goto L1       ← continue: al while
     i = i + 1;                     L5:
 }                                      if i <= 3 goto L9
-                                       goto L3       ← break: sale del while
+                                       goto L7       ← break: al final del switch
                                    L9:
                                    L6:
                                        print i
+                                   L7:
                                        $t1 = i + 1
                                        i = $t1
                                        goto L1
@@ -822,9 +838,9 @@ el layout de cada clase.
   nombra tal cual; el TAC no modela el entorno capturado.
 * `try/catch`: el lenguaje no tiene `throw`; el TAC solo marca la región y el
   manejador, y la fase de código objeto decide cómo detectar la excepción.
-* `break`/`continue` solo existen dentro de bucles (restricción del enunciado), así
-  que un `switch` no usa `break`: cada caso salta solo al final (no hay caída libre,
-  a diferencia de TypeScript; ver §6.7).
+* `break` solo existe dentro de un bucle o un `switch`, y `continue` solo dentro de un
+  bucle. Los casos de un `switch` caen en el siguiente salvo que terminen en `break`
+  (semántica de TypeScript, §6.7).
 * Una variable declarada sin inicializador no genera instrucción.
 
 ## 12. Cómo producirlo y probarlo

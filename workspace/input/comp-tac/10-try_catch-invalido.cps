@@ -1,4 +1,4 @@
-// Demo — try y catch, también dentro de ciclos con errores: no se genera TAC.
+// Demo — try y catch con errores (la variable del catch solo existe en su manejador): no se genera TAC.
 try {
     print("a");
 } catch (err) {
