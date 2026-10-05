@@ -9,7 +9,8 @@ let precio: float = 2.5;
 // --- Aritmética y promoción: integer -> float con itof; los temporales se reciclan.
 let mezcla: float = total + precio * 2;
 
-// --- Lógicas: cortocircuito con saltos, sin materializar el booleano.
+// --- Lógicas: cortocircuito con saltos. Aquí sí se materializa true/false
+//     porque el resultado se guarda en `ok`; en un `if` solo habría saltos.
 let ok: boolean = total < LIMITE && (precio > 1.0 || total == 0);
 
 // --- Funciones: cada una tiene su frame. Parámetros en fp+8.., locales en fp-4..

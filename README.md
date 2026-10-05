@@ -98,7 +98,7 @@ make cli FILE=<ruta-al-archivo-fuente>
 Por ejemplo:
 
 ```
-make cli FILE=workspace/input/comp-tac/funciones-valido.cps
+make cli FILE=workspace/input/comp-tac/06-funciones-valido.cps
 ```
 
 Esto hace el análisis léxico y sintáctico del archivo y, si no hubo errores de
@@ -135,8 +135,9 @@ símbolos esperadas (`tabla_simbolos/valido_*.symbols.json`) se regeneran con
 **revisar el diff**.
 
 Los programas de demostración del IDE están en `workspace/input/comp-tac/`: un
-`<área>-valido.cps` y un `<área>-invalido.cps` por cada punto de la rúbrica del
-Proyecto 2.
+`NN-<área>-valido.cps` y un `NN-<área>-invalido.cps` por cada punto de la rúbrica del
+Proyecto 2, numerados en el orden de la rúbrica (01 a 12), y `13-recorrido-completo.cps`,
+una demo que junta todas las áreas.
 
 ## IDE web (frontend y backend juntos)
 

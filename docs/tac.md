@@ -821,9 +821,10 @@ el layout de cada clase.
 * IDE: `make run` y **▶ Compilar** sobre un `.cps`; las vistas **Código
   intermedio (TAC)** y **Tabla de símbolos** muestran el resultado y se guarda
   `workspace/output/<nombre>/<nombre>.cps.tac`.
-* CLI: `make cli FILE=workspace/input/comp-tac/funciones-valido.cps`.
-* Casos de demostración: `workspace/input/comp-tac/` (un `<área>-valido.cps` y un
-  `<área>-invalido.cps` por cada fila de la rúbrica).
+* CLI: `make cli FILE=workspace/input/comp-tac/06-funciones-valido.cps`.
+* Casos de demostración: `workspace/input/comp-tac/` (un `NN-<área>-valido.cps` y un
+  `NN-<área>-invalido.cps` por cada fila de la rúbrica, numerados en su orden, más
+  `13-recorrido-completo.cps` con todas las áreas juntas).
 
 **Pruebas.** `src/tests/tac/<área>/` tiene una carpeta por punto de la rúbrica,
 con `valido_<caso>.cps` (debe compilar y generar TAC) e `invalido_<caso>.cps`

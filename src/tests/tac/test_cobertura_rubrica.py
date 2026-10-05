@@ -89,7 +89,8 @@ def test_generated_tac_contains_the_expected_instructions(area):
 @pytest.mark.parametrize("area", RUBRICA)
 def test_area_has_working_demo_files(area):
     """La demo del IDE: un programa válido (con TAC) y uno inválido (sin TAC)."""
-    valid = analyze_file(os.path.join(_DEMOS, f"{area}-valido.cps"))
+    number = f"{list(RUBRICA).index(area) + 1:02d}"  # 01-... en el orden de la rúbrica
+    valid = analyze_file(os.path.join(_DEMOS, f"{number}-{area}-valido.cps"))
     assert valid["errors"] == [] and valid["tac"]
-    invalid = analyze_file(os.path.join(_DEMOS, f"{area}-invalido.cps"))
+    invalid = analyze_file(os.path.join(_DEMOS, f"{number}-{area}-invalido.cps"))
     assert invalid["errors"] and invalid["tac"] is None
