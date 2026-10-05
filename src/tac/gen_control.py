@@ -180,9 +180,10 @@ class ControlMixin:
     # ── switch ──────────────────────────────────────────────────────────
     def visitSwitchStatement(self, ctx: CompiscriptParser.SwitchStatementContext):
         """El valor se evalúa una vez; una cadena de `if v == caso goto`
-        despacha, y los cuerpos van en orden: cada caso cae en el
-        siguiente (el ejemplo de docs/DefinicionCompiscript.md imprime
-        "uno", "dos" y "otro" para x = 1).
+        despacha, y cada caso termina con un `goto` al final del switch:
+        los casos son excluyentes, no caen en el siguiente. Ni el enunciado
+        ni la gramática definen la semántica, y `break` no existe en un
+        switch, así que sin este salto no habría forma de salir de un caso.
 
         `switch` NO es destino de `break`: la especificación del
         proyecto limita `break`/`continue` a bucles (el checker lo
@@ -204,10 +205,14 @@ class ControlMixin:
         self.e.free(value)  # ya no hace falta durante los cuerpos
         self._jump_to("", ldefault if ldefault is not None else lend)
 
-        for case, label in zip(cases, case_labels):
+        for index, (case, label) in enumerate(zip(cases, case_labels)):
             self.e.emit_label(label)
             for stmt in case.statement():
                 self.visit(stmt)
+            # El último caso sin default ya queda justo antes de `lend`
+            last_falls_to_end = index == len(cases) - 1 and default is None
+            if not last_falls_to_end and not self._ends_with_jump(case):
+                self._jump_to("", lend)
         if default is not None:
             self.e.emit_label(ldefault)
             for stmt in default.statement():

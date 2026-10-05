@@ -140,9 +140,9 @@ L6:
 ```
 
 **`switch`.** El valor se evalúa una sola vez. Hay un `if v == c goto Lcaso` por cada
-`case`, luego un salto al `default` (o al final). Los cuerpos van en orden y **cada
-caso cae en el siguiente**, porque en Compiscript `break` solo existe dentro de
-bucles:
+`case`, luego un salto al `default` (o al final). Cada caso termina con un `goto` al
+final: los casos son excluyentes y no hace falta `break` (a diferencia de TypeScript,
+porque en Compiscript `break` solo existe dentro de bucles):
 
 ```
 switch (x) {                           if x == 1 goto L1
@@ -150,10 +150,13 @@ switch (x) {                           if x == 1 goto L1
     case 2: print("dos");              goto L3
     default: print("otro");        L1:
 }                                      print "uno"
+                                       goto L4
                                    L2:
                                        print "dos"
+                                       goto L4
                                    L3:
                                        print "otro"
+                                   L4:
 ```
 
 **`try` / `catch`.** El lenguaje no tiene `throw`, así que el TAC solo marca la región

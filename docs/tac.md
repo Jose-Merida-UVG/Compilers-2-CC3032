@@ -329,9 +329,16 @@ L3:
 El valor del `switch` se evalúa **una sola vez** (queda en un temporal fijado
 que se libera antes de generar los cuerpos). Hay un `if v == c goto Lcase` por
 cada `case`, y después `goto Ldefault` (o `goto Lend` si no hay `default`). Los
-cuerpos van en orden y **cada caso cae en el siguiente**: no existe un `break`
-implícito ni una salida propia del `switch` (el ejemplo de
-`docs/enunciados/DefinicionCompiscript.md` imprime "uno", "dos" y "otro" para `x = 1`).
+cuerpos van en orden y **cada uno termina con un `goto` al final del `switch`**: los
+casos son excluyentes y no caen en el siguiente, así que no hace falta `break`.
+
+*Es una interpretación nuestra.* El enunciado dice que Compiscript es un subconjunto
+de TypeScript "con algunas diferencias" y muestra el `switch` sin `break` ni salida;
+la gramática (`case expr: statement*`) tampoco define nada. En TypeScript los casos
+caen unos en otros hasta un `break`, pero aquí `break` y `continue` se limitan a los
+bucles (`SemanticAnalysis.md`), de modo que con caída libre no habría forma de salir
+de un caso. Se eligió la semántica excluyente. El último caso no lleva `goto` si no
+hay `default`, y tampoco el que ya termina en `return`/`break`/`continue`.
 
 ```
 switch (x) {                           if x == 1 goto L1
@@ -339,10 +346,13 @@ switch (x) {                           if x == 1 goto L1
     case 2: print("dos");              goto L3
     default: print("otro");        L1:
 }                                      print "uno"
+                                       goto L4
                                    L2:
                                        print "dos"
+                                       goto L4
                                    L3:
                                        print "otro"
+                                   L4:
 ```
 
 **`break` y `continue` pertenecen solo a los bucles.** La especificación del
@@ -813,7 +823,8 @@ el layout de cada clase.
 * `try/catch`: el lenguaje no tiene `throw`; el TAC solo marca la región y el
   manejador, y la fase de código objeto decide cómo detectar la excepción.
 * `break`/`continue` solo existen dentro de bucles (restricción del enunciado), así
-  que un `switch` no se puede abandonar con `break`: cada caso cae en el siguiente.
+  que un `switch` no usa `break`: cada caso salta solo al final (no hay caída libre,
+  a diferencia de TypeScript; ver §6.7).
 * Una variable declarada sin inicializador no genera instrucción.
 
 ## 12. Cómo producirlo y probarlo
@@ -852,7 +863,7 @@ a mano. `make test` corre la suite completa (466 pruebas).
 | Aritméticas (1) | Cada operador es una instrucción de tres direcciones, de izquierda a derecha según la gramática. Un entero usado como `float` pasa por `itof` y `+` entre strings concatena. | `tac/gen_core.py` | `aritmetica/` |
 | Lógicas (1) | Las condiciones se compilan a saltos; `&&` y `\|\|` hacen cortocircuito encadenando etiquetas y `!` las intercambia. Como valor se materializa `true`/`false`. | `tac/gen_core.py` (`gen_cond`) | `logicas/` |
 | Arreglos (1) | `newarray n` más un `t[i] = v` por elemento; `a[i]` es una carga o un almacenamiento y `len` lo usa `foreach`. Los multidimensionales son arreglos de arreglos. | `tac/gen_core.py` | `arreglos/` |
-| Sentencias de control (3) | Ciclos e `if` son etiquetas y saltos, con la condición invertida para ahorrar un `goto`. `foreach` fija dos temporales (longitud e índice), `switch` evalúa una vez y cae de un caso al siguiente, y `break`/`continue` saltan a una pila de etiquetas. | `tac/gen_control.py` | `control_flujo/` |
+| Sentencias de control (3) | Ciclos e `if` son etiquetas y saltos, con la condición invertida para ahorrar un `goto`. `foreach` fija dos temporales (longitud e índice), `switch` evalúa una vez y cada caso salta al final, y `break`/`continue` saltan a una pila de etiquetas. | `tac/gen_control.py` | `control_flujo/` |
 | Funciones y parámetros (2) | Cada función es una unidad con su propio conjunto de temporales. Una llamada evalúa todos los argumentos, emite los `param` seguidos y luego `call f, n`; se agrega un `return` final si hace falta. | `tac/gen_functions.py` | `funciones/` |
 | Recursividad (2) | Es una llamada normal: el símbolo de la función ya existe al generar su cuerpo. Los temporales se reciclan entre llamadas anidadas (`fib(n-1) + fib(n-2)`). | `tac/gen_functions.py` | `recursividad/` |
 | Clases y objetos (2) | Una clase es una unidad con un `__init_fields` sintetizado y sus métodos, que reciben `this` primero. `new` reserva el objeto (con la tabla de su clase en `this+0`), inicializa los campos y llama al constructor; los campos son `obj.f`. | `tac/gen_classes.py` | `clases/` |
