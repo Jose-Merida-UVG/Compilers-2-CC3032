@@ -91,6 +91,53 @@ export interface TacStats {
   functions: number;
 }
 
+/** Resumen del ensamblador y de la mirilla (peephole). */
+export interface AsmStats {
+  /** Instrucciones MIPS antes de la mirilla. */
+  instructions_raw: number;
+  /** Instrucciones MIPS después de la mirilla. */
+  instructions: number;
+  /** Transformación -> cuántas veces se aplicó. */
+  peephole: Record<string, number>;
+}
+
+/** Una casilla del registro de activación (activation.frames[f].slots). */
+export interface ActivationSlot {
+  name: string;
+  /** param | saved | local | temp. */
+  kind: string;
+  /** Desplazamiento respecto a $fp (positivo: hacia direcciones altas). */
+  offset: number;
+  /** "fp+8", "fp-4". */
+  address: string;
+  size: number;
+}
+
+export interface ActivationFrame {
+  label: string;
+  total_size: number;
+  /** De direcciones altas a bajas. */
+  slots: ActivationSlot[];
+}
+
+/** Nodo del árbol de activación (grafo de llamadas desplegado desde __main). */
+export interface ActivationTreeNode {
+  label: string;
+  /** Línea TAC de la llamada que lo origina. */
+  line?: string;
+  recursive?: boolean;
+  /** Se cortó el despliegue de la recursión en este nodo. */
+  truncated?: boolean;
+  /** Llamada virtual resuelta por el tipo estático. */
+  virtual?: boolean;
+  children: ActivationTreeNode[];
+}
+
+export interface ActivationData {
+  frames: Record<string, ActivationFrame>;
+  tree: ActivationTreeNode;
+}
+
 export interface RunOutput {
   /** Terminal-ready lines: errors, then the status message. */
   lines: string[];
@@ -106,6 +153,25 @@ export interface RunOutput {
   /** Código de tres direcciones; null con cualquier error. */
   tac: string[] | null;
   tacStats: TacStats | null;
+  /** Ensamblador MIPS final (con mirilla); null con errores o si el generador
+   * falló, ausente si el backend aún no lo produce. */
+  asm?: string[] | null;
+  /** Ensamblador sin mirilla (para comparar antes/después). */
+  asmRaw?: string[] | null;
+  asmStats?: AsmStats | null;
+  /** Marcos y árbol de activación. */
+  activation?: ActivationData | null;
+}
+
+/** Lo que muestra la pestaña de ensamblador. */
+export interface AsmData {
+  /** Con mirilla. */
+  lines: string[];
+  /** Sin mirilla; null si no se conoce (p. ej. al abrir un .s guardado). */
+  raw: string[] | null;
+  stats: AsmStats | null;
+  /** Nombre sugerido al guardar, p. ej. "prog.cps.s". */
+  fileName: string;
 }
 
 /** Lo que muestra la pestaña TAC: el código o por qué no hay. */
@@ -127,6 +193,10 @@ export interface EditorTab {
   symbolTableData?: ScopeNode;
   /** Tras Run (o al abrir un .tac): se muestra con el TacViewer. */
   tacData?: TacData;
+  /** Tras Run (o al abrir un .s): se muestra con el AsmViewer. */
+  asmData?: AsmData;
+  /** Tras Run: registros y árbol de activación (ActivationViewer). */
+  activationData?: ActivationData;
 }
 
 /** Error del análisis y su ubicación en el archivo fuente. */

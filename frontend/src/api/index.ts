@@ -44,6 +44,26 @@ export const api = {
   createDirectory: (path: string) =>
     req<void>("/directory", { ...json({ path }), method: "PUT" }),
 
-  run: (inputPath: string) =>
-    req<RunOutput>("/run", json({ inputPath })),
+  run: async (inputPath: string): Promise<RunOutput> => {
+    const result = await req<RunOutput>("/run", json({ inputPath }));
+    return withMockAsm(result);
+  },
 };
+
+/**
+ * Desarrollo del IDE sin el generador: con `?mock` en la URL, si el backend
+ * compiló sin errores pero todavía no manda ensamblador, se completa con los
+ * datos de ejemplo de `mocks/sample.ts`. Sin `?mock` no hace nada.
+ */
+async function withMockAsm(result: RunOutput): Promise<RunOutput> {
+  const wantsMock = new URLSearchParams(window.location.search).has("mock");
+  if (!wantsMock || result.tac === null || result.asm !== undefined) return result;
+  const m = await import("../mocks/sample");
+  return {
+    ...result,
+    asm: m.mockAsm,
+    asmRaw: m.mockAsmRaw,
+    asmStats: m.mockAsmStats,
+    activation: m.mockActivation,
+  };
+}

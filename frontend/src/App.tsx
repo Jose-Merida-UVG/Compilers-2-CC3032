@@ -135,6 +135,10 @@ export default function App() {
         // El .tac guardado solo existe si la corrida no tuvo errores
         const tacData = { lines: content.replace(/\n$/, "").split("\n"), stats: null, errorCount: 0 };
         setTabs((prev) => [...prev, { path: node.path, label: node.name, content: "", isDirty: false, tacData }]);
+      } else if (node.path.endsWith(".s")) {
+        // El .s guardado solo existe si la corrida no tuvo errores
+        const asmData = { lines: content.replace(/\n$/, "").split("\n"), raw: null, stats: null, fileName: node.name };
+        setTabs((prev) => [...prev, { path: node.path, label: node.name, content: "", isDirty: false, asmData }]);
       } else {
         setTabs((prev) => [...prev, { path: node.path, label: node.name, content, isDirty: false }]);
       }
@@ -182,7 +186,7 @@ export default function App() {
  
   const saveTab = useCallback(async (path: string) => {
     const tab = tabs.find((t) => t.path === path);
-    if (!tab || tab.treeData || tab.symbolTableData || tab.tacData) return; // pestañas de solo lectura
+    if (!tab || tab.treeData || tab.symbolTableData || tab.tacData || tab.asmData || tab.activationData) return; // pestañas de solo lectura
     try {
       await api.writeFile(path, tab.content);
       setTabs((prev) => prev.map((t) => t.path === path ? { ...t, isDirty: false } : t));
@@ -226,7 +230,9 @@ export default function App() {
       result.lines.forEach((l) => appendTerminal(l));
       const fileName = inputPath.split("/").pop() ?? "";
       const base = fileName.replace(/\.cps$/, "");
-      const saved = result.tac
+      const saved = result.asm
+        ? ".out, .tree, .symbols, .tac y .s"
+        : result.tac
         ? ".out, .tree, .symbols y .tac"
         : result.symbolTable ? ".out, .tree y .symbols" : ".out y .tree";
       appendTerminal(`── salida guardada en output/${base}/ (${saved}) ──`);
@@ -240,7 +246,7 @@ export default function App() {
         setTabs((prev) => {
           const idx = prev.findIndex((t) => t.path === treeTabPath);
           const treeTab: EditorTab = {
-            path: treeTabPath, label: `${base} tree`, content: "", isDirty: false, treeData: result.tree!,
+            path: treeTabPath, label: `tree · ${base}`, content: "", isDirty: false, treeData: result.tree!,
           };
           if (idx >= 0) { const n = [...prev]; n[idx] = treeTab; return n; }
           return [...prev, treeTab];
@@ -253,7 +259,7 @@ export default function App() {
         setTabs((prev) => {
           const idx = prev.findIndex((t) => t.path === symbolsTabPath);
           const symbolsTab: EditorTab = {
-            path: symbolsTabPath, label: `${base} symbols`, content: "", isDirty: false, symbolTableData: result.symbolTable!,
+            path: symbolsTabPath, label: `symbols · ${base}`, content: "", isDirty: false, symbolTableData: result.symbolTable!,
           };
           if (idx >= 0) { const n = [...prev]; n[idx] = symbolsTab; return n; }
           return [...prev, symbolsTab];
@@ -262,6 +268,9 @@ export default function App() {
  
       const tacTabPath = `${inputPath}::tac`;
       const savedTacPath = `output/${base}/${fileName}.tac`;
+      const asmTabPath = `${inputPath}::asm`;
+      const activationTabPath = `${inputPath}::activation`;
+      const savedAsmPath = `output/${base}/${fileName}.s`;
 
       if (result.errors.length > 0 || result.tac === null) {
         const count = result.errors.length;
@@ -270,11 +279,12 @@ export default function App() {
           : "el compilador no devolvió TAC";
 
         setTacNotice(
-          `${inputPath}: no se generó código intermedio (${reason}).`
+          `${inputPath}: no se generó TAC ni ensamblador (${reason}).`
         );
 
         setTabs((prev) => prev.filter(
           (tab) => tab.path !== tacTabPath && tab.path !== savedTacPath
+            && tab.path !== asmTabPath && tab.path !== activationTabPath && tab.path !== savedAsmPath
         ));
         activate(inputPath, sourcePane);
       } else {
@@ -282,7 +292,7 @@ export default function App() {
 
         const tacTab: EditorTab = {
           path: tacTabPath,
-          label: `${base} tac`,
+          label: `tac · ${base}`,
           content: "",
           isDirty: false,
           tacData: {
@@ -303,8 +313,57 @@ export default function App() {
           }
           return [...updated, tacTab];
         });
-        // Fuente a la izquierda, TAC a la derecha; el foco queda en la fuente
-        setActiveByPane((prev) => (sourcePane === 0 ? [inputPath, tacTabPath] : [tacTabPath, inputPath]));
+        let resultTabPath = tacTabPath;
+
+        if (result.asm) {
+          const asmTab: EditorTab = {
+            path: asmTabPath,
+            label: `asm · ${base}`,
+            content: "",
+            isDirty: false,
+            asmData: {
+              lines: result.asm,
+              raw: result.asmRaw ?? null,
+              stats: result.asmStats ?? null,
+              fileName: `${fileName}.s`,
+            },
+          };
+          placeResult(asmTabPath);
+          setTabs((prev) => {
+            const updated = prev.filter((tab) => tab.path !== savedAsmPath);
+            const index = updated.findIndex((tab) => tab.path === asmTabPath);
+            if (index >= 0) { updated[index] = asmTab; return updated; }
+            return [...updated, asmTab];
+          });
+          resultTabPath = asmTabPath;
+        } else {
+          setTabs((prev) => prev.filter((tab) => tab.path !== asmTabPath && tab.path !== savedAsmPath));
+          // null (y no ausente) = el backend lo intentó y falló
+          if (result.asm === null) {
+            setTacNotice(`${inputPath}: el TAC se generó, pero no se pudo generar el ensamblador.`);
+          }
+        }
+
+        if (result.activation) {
+          const activationTab: EditorTab = {
+            path: activationTabPath,
+            label: `activación · ${base}`,
+            content: "",
+            isDirty: false,
+            activationData: result.activation,
+          };
+          placeResult(activationTabPath);
+          setTabs((prev) => {
+            const index = prev.findIndex((tab) => tab.path === activationTabPath);
+            if (index >= 0) { const next = [...prev]; next[index] = activationTab; return next; }
+            return [...prev, activationTab];
+          });
+        } else {
+          setTabs((prev) => prev.filter((tab) => tab.path !== activationTabPath));
+        }
+
+        // Fuente a un lado y el resultado más reciente (ensamblador) al otro; el foco queda en la fuente
+        setActiveByPane((prev) => (sourcePane === 0 ? [inputPath, resultTabPath] : [resultTabPath, inputPath]));
         setFocusedPane(sourcePane);
       }
 
@@ -325,7 +384,8 @@ export default function App() {
   const canRun = (pane: Pane) => {
     const path = activeByPane[pane];
     const tab = tabs.find((t) => t.path === path);
-    return !!path && path.endsWith(".cps") && !tab?.treeData && !tab?.symbolTableData && !tab?.tacData;
+    return !!path && path.endsWith(".cps") && !tab?.treeData && !tab?.symbolTableData && !tab?.tacData
+      && !tab?.asmData && !tab?.activationData;
   };
  
   return (
