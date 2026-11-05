@@ -10,10 +10,12 @@ Dos niveles:
 
 from __future__ import annotations
 
+import re
+
 import pytest
 from antlr4 import InputStream
 
-from asm.generator import AsmGenerator, generate_asm
+from asm.generator import AsmGenerator, BaseGen, CoreSel, generate_asm
 from compiler import analyze
 from support.minisim import Sim
 from support.testsel import RUNTIME, MiniGen
@@ -54,21 +56,27 @@ def test_tac_lines_are_commented_and_can_be_turned_off():
     assert "# TAC:" not in without
 
 
+class CoreOnly(CoreSel, BaseGen):
+    """Generador con solo el núcleo: sin ningún selector de Nes ni de Tono, para
+    que estas pruebas no dependan de qué archivos `sel_*.py` existan hoy."""
+
+
 def test_missing_selector_names_its_owner():
     with pytest.raises(NotImplementedError) as exc:
-        _asm("let a = [1, 2];")  # NewArray: lo implementa Nes (sel_arrays.py)
+        _asm("let a = [1, 2];", generator_class=CoreOnly)  # NewArray: lo implementa Nes
     assert "sel_NewArray" in str(exc.value) and "Nes" in str(exc.value)
 
 
 def test_non_strict_mode_leaves_a_todo_comment():
-    text = "\n".join(_asm("let a = [1, 2];", strict=False).lines)
+    text = "\n".join(_asm("let a = [1, 2];", strict=False, generator_class=CoreOnly).lines)
     assert "# TODO sel_NewArray" in text
 
 
 def test_data_section_deduplicates_strings_and_floats():
     text = "\n".join(_asm('let a: string = "hola"; let b: string = "hola"; '
                          "let f: float = 2.5; let g: float = 2.5;", strict=False).lines)
-    assert text.count(".asciiz") == 1 and text.count(".float") == 1
+    assert len(re.findall(r"^str_\d+:", text, re.M)) == 1  # el runtime agrega sus propios mensajes
+    assert len(re.findall(r"^flt_\d+:", text, re.M)) == 1
 
 
 def test_globals_area_matches_the_symbol_table():

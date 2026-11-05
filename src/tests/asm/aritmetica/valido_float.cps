@@ -1,0 +1,14 @@
+let x: float = 2.5;
+let y: float = 0.5;
+print(x + y);
+print(x - y);
+print(x * y);
+print(x / y);
+print(-x);
+let n: integer = 3;
+print(x * n);
+let z: float = n;
+print(z);
+print(x + 1);
+let w: float = x * x - 1.0;
+print(w);

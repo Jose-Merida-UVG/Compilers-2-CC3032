@@ -1,0 +1,11 @@
+let a: string = "hola";
+let b: string = " mundo";
+let c: string = a + b;
+print(c);
+print(a + "!" + "!");
+let vacio: string = "";
+print(vacio + a);
+print("x" + vacio + "y");
+print(a == "hola");
+print(a != b);
+print(c == a + b);

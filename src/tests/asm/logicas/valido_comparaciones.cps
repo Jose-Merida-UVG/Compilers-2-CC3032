@@ -1,0 +1,16 @@
+let a: integer = 5;
+let b: integer = 9;
+print(a < b);
+print(a > b);
+print(a <= 5);
+print(a >= b);
+print(a == 5);
+print(a != b);
+let x: float = 2.5;
+let y: float = 2.5;
+print(x == y);
+print(x < 3.0);
+print(x >= 3.0);
+print(x != y);
+let t: boolean = true;
+print(t == false);
