@@ -27,7 +27,7 @@ def java_float(x):
     x = f32(x)
     if x != x: return "NaN"
     if x in (float("inf"), float("-inf")): return "Infinity" if x > 0 else "-Infinity"
-    if x == 0: return "0.0"
+    if x == 0: return "-0.0" if struct.pack("<f", x)[3] & 0x80 else "0.0"
     for p in range(1, 10):  # la representación más corta que sobrevive a float32
         t = "%.*g" % (p, x)
         if f32(float(t)) == x: break
