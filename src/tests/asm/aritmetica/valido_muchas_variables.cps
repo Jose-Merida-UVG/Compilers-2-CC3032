@@ -1,0 +1,14 @@
+let a: integer = 1;
+let b: integer = 2;
+let c: integer = 3;
+let d: integer = 4;
+let e: integer = 5;
+let f: integer = 6;
+let g: integer = 7;
+let h: integer = 8;
+let i: integer = 9;
+let j: integer = 10;
+let k: integer = 11;
+let l: integer = 12;
+print((a + b) * (c + d) + (e + f) * (g + h) + (i + j) * (k + l));
+print(a * b + c * d + e * f + g * h + i * j + k * l);

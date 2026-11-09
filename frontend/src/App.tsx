@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef, Fragment } from "react";
 import FileExplorer from "./components/Sidebar/FileExplorer";
 import EditorPane from "./components/Editor/EditorPane";
 import TerminalPane from "./components/Terminal/TerminalPane";
@@ -7,10 +7,19 @@ import type { FileNode, EditorTab, CompilerDiagnostic, EditorLocation } from "./
 import { api } from "./api";
 import "./App.css";
  
+type Pane = 0 | 1;
+
 export default function App() {
   const [fileTree, setFileTree] = useState<FileNode[]>([]);
   const [tabs, setTabs] = useState<EditorTab[]>([]);
-  const [activeTab, setActiveTab] = useState<string | null>(null);
+  // Dos paneles de editor (izquierda/derecha). Cada pestaña pertenece a uno;
+  // cada panel tiene su pestaña activa. El panel 1 solo se ve si tiene pestañas.
+  const [paneOf, setPaneOf] = useState<Record<string, Pane>>({});
+  const [activeByPane, setActiveByPane] = useState<[string | null, string | null]>([null, null]);
+  const [focusedPane, setFocusedPane] = useState<Pane>(0);
+  const [splitRatio, setSplitRatio] = useState(0.5);
+  const editorAreaRef = useRef<HTMLDivElement>(null);
+  const splitting = useRef(false);
   const [terminalLines, setTerminalLines] = useState<string[]>(["Compiscript IDE ready."]);
   const [terminalHeight, setTerminalHeight] = useState(200);
   const resizing = useRef(false);
@@ -38,12 +47,21 @@ export default function App() {
  
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
+      if (splitting.current && editorAreaRef.current) {
+        const box = editorAreaRef.current.getBoundingClientRect();
+        setSplitRatio(Math.max(0.2, Math.min((e.clientX - box.left) / box.width, 0.8)));
+        return;
+      }
       if (!resizing.current) return;
       const delta = resizeStartY.current - e.clientY;
       const next = Math.max(60, Math.min(resizeStartH.current + delta, window.innerHeight * 0.75));
       setTerminalHeight(next);
     };
-    const onUp = () => { resizing.current = false; document.body.style.cursor = ""; };
+    const onUp = () => {
+      resizing.current = false;
+      splitting.current = false;
+      document.body.style.cursor = "";
+    };
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
     return () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
@@ -57,11 +75,54 @@ export default function App() {
     e.preventDefault();
   }, [terminalHeight]);
  
+  const onSplitStart = useCallback((e: React.MouseEvent) => {
+    splitting.current = true;
+    document.body.style.cursor = "ew-resize";
+    e.preventDefault();
+  }, []);
+
+  const paneFor = useCallback((path: string): Pane => paneOf[path] ?? 0, [paneOf]);
+
+  // Hace visible `path` en `pane` y le da el foco.
+  const activate = useCallback((path: string, pane: Pane) => {
+    setPaneOf((prev) => (prev[path] === pane ? prev : { ...prev, [path]: pane }));
+    setActiveByPane((prev) => (pane === 0 ? [path, prev[1]] : [prev[0], path]));
+    setFocusedPane(pane);
+  }, []);
+
+  // Si la pestaña activa de un panel ya no existe (cerrada, reemplazada), pasa a
+  // la última de ese panel.
+  useEffect(() => {
+    setActiveByPane((prev) => {
+      const next: [string | null, string | null] = [prev[0], prev[1]];
+      ([0, 1] as Pane[]).forEach((p) => {
+        const inPane = tabs.filter((t) => (paneOf[t.path] ?? 0) === p);
+        if (!inPane.some((t) => t.path === prev[p])) next[p] = inPane[inPane.length - 1]?.path ?? null;
+      });
+      return next[0] === prev[0] && next[1] === prev[1] ? prev : next;
+    });
+  }, [tabs, paneOf]);
+
+  // Si el panel con foco se quedó sin pestañas, el foco pasa al que sigue visible;
+  // si no, un archivo nuevo se abriría en el panel vacío y reviviría la división.
+  useEffect(() => {
+    const has = (p: Pane) => tabs.some((t) => (paneOf[t.path] ?? 0) === p);
+    setFocusedPane((f) => {
+      const other: Pane = f === 0 ? 1 : 0;
+      return !has(f) && has(other) ? other : f;
+    });
+  }, [tabs, paneOf]);
+
+  // Mueve una pestaña al otro panel (si el otro está vacío, así se divide).
+  const moveTab = useCallback((path: string) => {
+    activate(path, paneFor(path) === 0 ? 1 : 0);
+  }, [activate, paneFor]);
+
   // ── File ops ────────────────────────────────────────────────────────────────
   const openFile = useCallback(async (node: FileNode) => {
     if (node.isDir) return;
     const existing = tabs.find((t) => t.path === node.path);
-    if (existing) { setActiveTab(node.path); return; }
+    if (existing) { activate(node.path, paneFor(node.path)); return; }
     try {
       const content = await api.readFile(node.path);
       if (node.path.endsWith(".tree")) {
@@ -74,14 +135,18 @@ export default function App() {
         // El .tac guardado solo existe si la corrida no tuvo errores
         const tacData = { lines: content.replace(/\n$/, "").split("\n"), stats: null, errorCount: 0 };
         setTabs((prev) => [...prev, { path: node.path, label: node.name, content: "", isDirty: false, tacData }]);
+      } else if (node.path.endsWith(".s")) {
+        // El .s guardado solo existe si la corrida no tuvo errores
+        const asmData = { lines: content.replace(/\n$/, "").split("\n"), raw: null, stats: null, fileName: node.name };
+        setTabs((prev) => [...prev, { path: node.path, label: node.name, content: "", isDirty: false, asmData }]);
       } else {
         setTabs((prev) => [...prev, { path: node.path, label: node.name, content, isDirty: false }]);
       }
-      setActiveTab(node.path);
+      activate(node.path, focusedPane);
     } catch (e: any) {
       appendTerminal(`Error opening ${node.path}: ${e.message}`);
     }
-  }, [tabs, appendTerminal]);
+  }, [tabs, appendTerminal, activate, paneFor, focusedPane]);
 
   const goToDiagnostic = async (diagnostic: CompilerDiagnostic) => {
     if (diagnostic.line === null || diagnostic.column === null) return;
@@ -101,13 +166,10 @@ export default function App() {
   };
  
   const closeTab = useCallback((path: string) => {
-    setTabs((prev) => {
-      const next = prev.filter((t) => t.path !== path);
-      setActiveTab((cur) => {
-        if (cur !== path) return cur;
-        return next.length > 0 ? next[next.length - 1].path : null;
-      });
-      return next;
+    setTabs((prev) => prev.filter((t) => t.path !== path));
+    setPaneOf((prev) => {
+      const { [path]: _removed, ...rest } = prev;
+      return rest;
     });
   }, []);
  
@@ -124,7 +186,7 @@ export default function App() {
  
   const saveTab = useCallback(async (path: string) => {
     const tab = tabs.find((t) => t.path === path);
-    if (!tab || tab.treeData || tab.symbolTableData || tab.tacData) return; // pestañas de solo lectura
+    if (!tab || tab.treeData || tab.symbolTableData || tab.tacData || tab.asmData || tab.activationData) return; // pestañas de solo lectura
     try {
       await api.writeFile(path, tab.content);
       setTabs((prev) => prev.map((t) => t.path === path ? { ...t, isDirty: false } : t));
@@ -148,6 +210,10 @@ export default function App() {
       }
     }
  
+    // Fuente en su panel; los resultados (tree, symbols, tac) en el otro
+    const sourcePane = paneFor(inputPath);
+    const resultPane: Pane = sourcePane === 0 ? 1 : 0;
+
     appendTerminal(`\n▶ Compilando ${inputPath}`);
     try {
       const result = await api.run(inputPath);
@@ -164,17 +230,23 @@ export default function App() {
       result.lines.forEach((l) => appendTerminal(l));
       const fileName = inputPath.split("/").pop() ?? "";
       const base = fileName.replace(/\.cps$/, "");
-      const saved = result.tac
+      const saved = result.asm
+        ? ".out, .tree, .symbols, .tac y .s"
+        : result.tac
         ? ".out, .tree, .symbols y .tac"
         : result.symbolTable ? ".out, .tree y .symbols" : ".out y .tree";
       appendTerminal(`── salida guardada en output/${base}/ (${saved}) ──`);
 
+      const placeResult = (path: string) =>
+        setPaneOf((prev) => (prev[path] === resultPane ? prev : { ...prev, [path]: resultPane }));
+
       if (result.tree) {
         const treeTabPath = `${inputPath}::tree`;
+        placeResult(treeTabPath);
         setTabs((prev) => {
           const idx = prev.findIndex((t) => t.path === treeTabPath);
           const treeTab: EditorTab = {
-            path: treeTabPath, label: `${base} tree`, content: "", isDirty: false, treeData: result.tree!,
+            path: treeTabPath, label: `tree · ${base}`, content: "", isDirty: false, treeData: result.tree!,
           };
           if (idx >= 0) { const n = [...prev]; n[idx] = treeTab; return n; }
           return [...prev, treeTab];
@@ -183,10 +255,11 @@ export default function App() {
 
       if (result.symbolTable) {
         const symbolsTabPath = `${inputPath}::symbols`;
+        placeResult(symbolsTabPath);
         setTabs((prev) => {
           const idx = prev.findIndex((t) => t.path === symbolsTabPath);
           const symbolsTab: EditorTab = {
-            path: symbolsTabPath, label: `${base} symbols`, content: "", isDirty: false, symbolTableData: result.symbolTable!,
+            path: symbolsTabPath, label: `symbols · ${base}`, content: "", isDirty: false, symbolTableData: result.symbolTable!,
           };
           if (idx >= 0) { const n = [...prev]; n[idx] = symbolsTab; return n; }
           return [...prev, symbolsTab];
@@ -195,6 +268,9 @@ export default function App() {
  
       const tacTabPath = `${inputPath}::tac`;
       const savedTacPath = `output/${base}/${fileName}.tac`;
+      const asmTabPath = `${inputPath}::asm`;
+      const activationTabPath = `${inputPath}::activation`;
+      const savedAsmPath = `output/${base}/${fileName}.s`;
 
       if (result.errors.length > 0 || result.tac === null) {
         const count = result.errors.length;
@@ -203,19 +279,20 @@ export default function App() {
           : "el compilador no devolvió TAC";
 
         setTacNotice(
-          `${inputPath}: no se generó código intermedio (${reason}).`
+          `${inputPath}: no se generó TAC ni ensamblador (${reason}).`
         );
 
         setTabs((prev) => prev.filter(
           (tab) => tab.path !== tacTabPath && tab.path !== savedTacPath
+            && tab.path !== asmTabPath && tab.path !== activationTabPath && tab.path !== savedAsmPath
         ));
-        setActiveTab(inputPath);
+        activate(inputPath, sourcePane);
       } else {
         setTacNotice(null);
 
         const tacTab: EditorTab = {
           path: tacTabPath,
-          label: `${base} tac`,
+          label: `tac · ${base}`,
           content: "",
           isDirty: false,
           tacData: {
@@ -225,6 +302,7 @@ export default function App() {
           },
         };
 
+        placeResult(tacTabPath);
         setTabs((prev) => {
           // Retira una vista del archivo guardado que podría estar vieja.
           const updated = prev.filter((tab) => tab.path !== savedTacPath);
@@ -235,17 +313,80 @@ export default function App() {
           }
           return [...updated, tacTab];
         });
-        setActiveTab(tacTabPath);
+        let resultTabPath = tacTabPath;
+
+        if (result.asm) {
+          const asmTab: EditorTab = {
+            path: asmTabPath,
+            label: `asm · ${base}`,
+            content: "",
+            isDirty: false,
+            asmData: {
+              lines: result.asm,
+              raw: result.asmRaw ?? null,
+              stats: result.asmStats ?? null,
+              fileName: `${fileName}.s`,
+            },
+          };
+          placeResult(asmTabPath);
+          setTabs((prev) => {
+            const updated = prev.filter((tab) => tab.path !== savedAsmPath);
+            const index = updated.findIndex((tab) => tab.path === asmTabPath);
+            if (index >= 0) { updated[index] = asmTab; return updated; }
+            return [...updated, asmTab];
+          });
+          resultTabPath = asmTabPath;
+        } else {
+          setTabs((prev) => prev.filter((tab) => tab.path !== asmTabPath && tab.path !== savedAsmPath));
+          // null (y no ausente) = el backend lo intentó y falló
+          if (result.asm === null) {
+            setTacNotice(`${inputPath}: el TAC se generó, pero no se pudo generar el ensamblador.`);
+          }
+        }
+
+        if (result.activation) {
+          const activationTab: EditorTab = {
+            path: activationTabPath,
+            label: `activación · ${base}`,
+            content: "",
+            isDirty: false,
+            activationData: result.activation,
+          };
+          placeResult(activationTabPath);
+          setTabs((prev) => {
+            const index = prev.findIndex((tab) => tab.path === activationTabPath);
+            if (index >= 0) { const next = [...prev]; next[index] = activationTab; return next; }
+            return [...prev, activationTab];
+          });
+        } else {
+          setTabs((prev) => prev.filter((tab) => tab.path !== activationTabPath));
+        }
+
+        // Fuente a un lado y el resultado más reciente (ensamblador) al otro; el foco queda en la fuente
+        setActiveByPane((prev) => (sourcePane === 0 ? [inputPath, resultTabPath] : [resultTabPath, inputPath]));
+        setFocusedPane(sourcePane);
       }
 
       await refreshTree();
     } catch (e: any) {
       appendTerminal(`Error: ${e.message}`);
     }
-  }, [tabs, appendTerminal, refreshTree]);
+  }, [tabs, appendTerminal, refreshTree, activate, paneFor]);
  
+  const paneTabs = ([0, 1] as Pane[]).map((p) => tabs.filter((t) => (paneOf[t.path] ?? 0) === p));
+  const visiblePanes = ([0, 1] as Pane[]).filter((p) => paneTabs[p].length > 0);
+  if (visiblePanes.length === 0) visiblePanes.push(0);
+  const split = visiblePanes.length === 2;
+  const focus: Pane = visiblePanes.includes(focusedPane) ? focusedPane : visiblePanes[0];
+  const activeTab = activeByPane[focus];
+
   const activeTabData = tabs.find((t) => t.path === activeTab) ?? null;
-  const isCps = (activeTab?.endsWith(".cps") ?? false) && !activeTabData?.treeData && !activeTabData?.symbolTableData && !activeTabData?.tacData;
+  const canRun = (pane: Pane) => {
+    const path = activeByPane[pane];
+    const tab = tabs.find((t) => t.path === path);
+    return !!path && path.endsWith(".cps") && !tab?.treeData && !tab?.symbolTableData && !tab?.tacData
+      && !tab?.asmData && !tab?.activationData;
+  };
  
   return (
     <div className="app-shell">
@@ -266,16 +407,29 @@ export default function App() {
             {tacNotice}
           </div>
         )}
-        <EditorPane
-          tabs={tabs}
-          activeTab={activeTab}
-          onSelectTab={setActiveTab}
-          onCloseTab={closeTab}
-          onChangeContent={updateTabContent}
-          onSave={saveTab}
-          onRunFile={isCps ? runFile : undefined}
-          location={editorLocation}
-        />
+        <div className="editor-area" ref={editorAreaRef}>
+          {visiblePanes.map((pane, index) => (
+            <Fragment key={pane}>
+              {index > 0 && <div className="split-handle" onMouseDown={onSplitStart} />}
+              <EditorPane
+                tabs={paneTabs[pane]}
+                activeTab={activeByPane[pane]}
+                focused={pane === focus}
+                canMove={tabs.length > 1 || split}
+                moveLabel={split ? "⇄ Mover al otro panel" : "◫ Dividir"}
+                style={split && index === 0 ? { flex: `0 0 ${splitRatio * 100}%` } : undefined}
+                onFocus={() => setFocusedPane(pane)}
+                onSelectTab={(path) => activate(path, pane)}
+                onCloseTab={closeTab}
+                onMoveTab={moveTab}
+                onChangeContent={updateTabContent}
+                onSave={saveTab}
+                onRunFile={canRun(pane) ? runFile : undefined}
+                location={editorLocation}
+              />
+            </Fragment>
+          ))}
+        </div>
         <div className="resize-handle" onMouseDown={onResizeStart} />
         <TerminalPane
           lines={terminalLines}

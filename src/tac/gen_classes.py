@@ -1,11 +1,12 @@
 """ClassMixin: TAC de clases, objetos, herencia y la cadena `leftHandSide`.
 
-Cada clase es una unidad `class … endclass` con un `__init_fields(this)`
-sintetizado (llama al del padre y asigna los campos con valor inicial) y sus
-métodos. `new` reserva el objeto, evalúa los argumentos y llama a
-`__init_fields` y luego al constructor. Los métodos se resuelven de forma
-estática: se llama a la etiqueta del ancestro más cercano que lo declara, sin
-despacho dinámico.
+Cada clase es una unidad `class … endclass` con una línea `vtable` (su tabla de
+métodos), un `__init_fields(this)` sintetizado (llama al del padre y asigna los
+campos con valor inicial) y sus métodos. `new` reserva el objeto, que guarda la
+tabla de su clase en `this+0`, evalúa los argumentos y llama a `__init_fields`
+y luego al constructor. Una llamada a método se despacha por la tabla del
+objeto (`vtable`, índice del slot, `callvirt`); el constructor y
+`__init_fields` se llaman de forma estática.
 
 `eval_chain` recorre `primaryAtom suffixOp*` con un operando base que cada
 sufijo transforma (`[i]` carga, `.campo` carga, `.m(...)` llama con el objeto
@@ -18,6 +19,7 @@ from typing import Optional
 
 from CompiscriptParser import CompiscriptParser
 
+from semantic.layout import method_slot, vtable_entries
 from semantic.symbols import ScopeKind, Symbol, SymbolKind
 from semantic.types import ClassType
 from tac.instructions import (
@@ -39,6 +41,11 @@ class ClassMixin:
         parent = identifiers[1].getText() if len(identifiers) > 1 else None
 
         self.e.begin_unit(class_header(name, parent))
+        class_symbol = self.scope_of(ctx).resolve(name)
+        if class_symbol is not None and isinstance(class_symbol.type, ClassType):
+            labels = [label for _, label in vtable_entries(class_symbol.type)]
+            if labels:
+                self.e.emit(f"vtable {', '.join(labels)}")
         self._emit_init_fields(ctx, name, parent)
         for member in ctx.classMember():
             if member.functionDeclaration() is not None:
@@ -133,19 +140,31 @@ class ClassMixin:
         scope = self._symbol_scopes.get(id(symbol))
         return scope is not None and scope.kind is ScopeKind.CLASS
 
-    def _chain_start(self, atom) -> tuple[str, Optional[str]]:
+    def _enclosing_class_type(self, symbol: Symbol) -> Optional[ClassType]:
+        """Tipo de la clase que declara el miembro `symbol`."""
+        scope = self._symbol_scopes.get(id(symbol))
+        if scope is None or scope.parent is None or scope.owner is None:
+            return None
+        class_symbol = scope.parent.symbols.get(scope.owner)
+        if class_symbol is not None and isinstance(class_symbol.type, ClassType):
+            return class_symbol.type
+        return None
+
+    def _chain_start(self, atom) -> tuple[str, Optional[str], Optional[int]]:
         """Operando del átomo y, si es un método de la propia clase usado sin
-        `this.`, el receptor implícito."""
+        `this.`, el receptor implícito y el slot de la llamada virtual."""
         if isinstance(atom, CompiscriptParser.IdentifierExprContext):
             symbol = self.symbol_of(atom)
             if symbol is not None and self._in_class_scope(symbol):
                 if symbol.kind in (SymbolKind.VARIABLE, SymbolKind.CONSTANT):
                     t = self.e.new_temp()
                     self.e.emit(f"{t} = {THIS}.{symbol.name}")
-                    return t, None
+                    return t, None, None
                 if symbol.kind is SymbolKind.FUNCTION:
-                    return self.name_of(symbol), THIS
-        return self.visit(atom), None
+                    owner = self._enclosing_class_type(symbol)
+                    slot = method_slot(owner, symbol.name) if owner else None
+                    return self.name_of(symbol), THIS, slot
+        return self.visit(atom), None, None
 
     def eval_chain(self, ctx, count: int) -> str:
         """Evalúa el átomo y los primeros `count` sufijos. Devuelve el operando
@@ -156,7 +175,7 @@ class ClassMixin:
         suffixes = list(ctx.suffixOp())[:count]
         whole = count == len(ctx.suffixOp())
 
-        base, receiver = self._chain_start(atom)
+        base, receiver, slot = self._chain_start(atom)
         current_type = self.type_of(atom)
 
         for index, suffix in enumerate(suffixes):
@@ -170,8 +189,14 @@ class ClassMixin:
                     and member is not None
                     and member.kind is SymbolKind.FUNCTION
                 ):
-                    # Llamada a método: el objeto pasa a ser el receptor
+                    # Llamada a método: el objeto pasa a ser el receptor y el
+                    # método se busca por su slot en la tabla del tipo estático
                     receiver, base = base, self.name_of(member)
+                    slot = (
+                        method_slot(current_type, member.name)
+                        if isinstance(current_type, ClassType)
+                        else None
+                    )
                 else:
                     self.e.free(base)
                     t = self.e.new_temp()
@@ -179,7 +204,7 @@ class ClassMixin:
                     base = t
             else:
                 statement = whole and following is None and self._is_statement(ctx)
-                base = self._emit_call(base, suffix, current_type, receiver, statement)
-                receiver = None
+                base = self._emit_call(base, suffix, current_type, receiver, statement, slot)
+                receiver, slot = None, None
             current_type = self.type_of(suffix)
         return base

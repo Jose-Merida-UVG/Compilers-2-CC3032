@@ -1,0 +1,10 @@
+let x: integer = 6;
+let y: integer = 4;
+let z: integer = 2;
+print(x + y * z);
+print((x + y) * z);
+print(x * y + x / y - x % y);
+print(x - y - z);
+print(x / y / z);
+print(x % y * z);
+print(-(x + y) + z);

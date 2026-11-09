@@ -1,0 +1,11 @@
+let a: integer[] = [10, 20, 30];
+print(a[0]);
+print(a[2]);
+a[1] = 99;
+print(a[1]);
+let i: integer = 2;
+a[i] = a[0] + a[1];
+print(a[i]);
+let b = a;
+b[0] = 7;
+print(a[0]);

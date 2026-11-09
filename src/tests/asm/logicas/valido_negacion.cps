@@ -1,0 +1,12 @@
+let a: boolean = true;
+let b: boolean = false;
+print(!a);
+print(!b);
+print(!(a && b));
+print(a && !b);
+print(a || b && !a);
+print((a || b) && !a);
+let n: integer = 4;
+print(n > 2 && n < 10);
+print(n < 2 || n > 10);
+print(!(n == 4));

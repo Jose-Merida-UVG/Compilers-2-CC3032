@@ -15,8 +15,12 @@ Convenciones (MIPS32):
         locales         fp-(offset+tamaño), un espacio por símbolo
         temporales      4 bytes cada uno
   * `frame.total_size` = params + locals + temps + saved.
-  * Clases: los campos heredados van primero, en los offsets del padre;
-    dirección de un campo `this+offset`. Las constantes también son campos.
+  * Clases: `this+0` guarda el puntero a la tabla de métodos de la clase; los
+    campos heredados van después, en los offsets del padre; dirección de un
+    campo `this+offset`. Las constantes también son campos.
+  * Tabla de métodos (`vtable_entries`): un slot por método, con los del padre
+    primero; un método sobrescrito reutiliza el slot del ancestro. Los
+    constructores no entran (se llaman de forma estática).
   * Etiquetas: funciones `f`, métodos `Clase.metodo`, clases `Clase`.
 
 `max_temps` (opcional) es `Emitter.max_temps` y llena `frame.temps` una vez
@@ -39,6 +43,34 @@ _DATA_KINDS = (SymbolKind.VARIABLE, SymbolKind.CONSTANT)
 
 def size_of(type_: Type) -> int:
     return 1 if isinstance(type_, BooleanType) else WORD
+
+
+def vtable_entries(class_type: ClassType) -> list[tuple[str, str]]:
+    """Tabla de métodos de una clase: `(método, etiqueta)` por slot. Los slots
+    del padre van primero y un método sobrescrito reemplaza la etiqueta en el
+    mismo slot, así `slot(m)` es igual en toda la jerarquía."""
+    entries: list[tuple[str, str]] = []
+    if class_type.parent is not None:
+        entries = vtable_entries(class_type.parent)
+    for name, symbol in class_type.members.items():
+        if symbol.kind is not SymbolKind.FUNCTION or name == "constructor":
+            continue
+        label = f"{class_type.class_name}.{name}"
+        for slot, (existing, _) in enumerate(entries):
+            if existing == name:
+                entries[slot] = (name, label)
+                break
+        else:
+            entries.append((name, label))
+    return entries
+
+
+def method_slot(class_type: ClassType, name: str) -> Optional[int]:
+    """Slot de `name` en la tabla de `class_type`, o None si no es virtual."""
+    for slot, (method, _) in enumerate(vtable_entries(class_type)):
+        if method == name:
+            return slot
+    return None
 
 
 def _align(offset: int, size: int) -> int:
@@ -165,7 +197,7 @@ class _Layout:
             return self.class_layouts[key]
 
         fields: list[dict] = []
-        offset = 0
+        offset = WORD  # this+0: puntero a la tabla de métodos
         parent_name: Optional[str] = None
         parent_scope = self._parent_scope(scope)
         if parent_scope is not None:
@@ -175,6 +207,12 @@ class _Layout:
             fields = [dict(f, inherited=True) for f in parent_layout["fields"]]
             offset = parent_layout["size"]
 
+        class_symbol = self._class_symbol(scope)
+        class_type = (
+            class_symbol.type
+            if class_symbol is not None and isinstance(class_symbol.type, ClassType)
+            else None
+        )
         area = _Area(offset)
         methods: list[dict] = []
         for symbol in scope.symbols.values():
@@ -195,6 +233,7 @@ class _Layout:
                     {
                         "name": symbol.name,
                         "label": symbol.label,
+                        "slot": method_slot(class_type, symbol.name) if class_type else None,
                         "overrides": self._overridden(scope, symbol.name),
                     }
                 )
@@ -204,11 +243,16 @@ class _Layout:
             "parent": parent_name,
             "fields": fields,
             "methods": methods,
+            "vtable": [
+                {"slot": slot, "name": name, "label": label}
+                for slot, (name, label) in enumerate(
+                    vtable_entries(class_type) if class_type else []
+                )
+            ],
         }
         scope.layout = layout
         self.class_layouts[key] = layout
 
-        class_symbol = self._class_symbol(scope)
         if class_symbol is not None:
             class_symbol.size = layout["size"]
 

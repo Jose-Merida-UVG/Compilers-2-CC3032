@@ -1,0 +1,10 @@
+let f: float[] = [1.5, 2.5];
+f[0] = 4;
+print(f[0] + f[1]);
+let nombres: string[] = ["ana", "luis"];
+nombres[0] = nombres[1] + "!";
+print(nombres[0]);
+print(nombres[1]);
+let flags: boolean[] = [true, false];
+print(flags[0]);
+print(flags[1]);

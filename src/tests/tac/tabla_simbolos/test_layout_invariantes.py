@@ -81,6 +81,7 @@ def test_symbol_table_invariants(path):
     assert None not in tac_names
     keywords = {"func", "endfunc", "class", "endclass", "goto", "if", "ifFalse", "param", "call",
                 "return", "print", "new", "newarray", "len", "itof", "try", "endtry", "catch",
+                "vtable", "callvirt",
                 "true", "false", "null", "this"}
     for line in tac:
         text = line.strip()

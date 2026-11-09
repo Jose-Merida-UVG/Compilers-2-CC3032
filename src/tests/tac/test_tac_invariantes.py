@@ -1,6 +1,5 @@
 """Invariantes estructurales del TAC, sobre todos los casos válidos de todas
-las áreas. Los golden congelan lo que generó el generador; estas pruebas
-verifican propiedades que cualquier TAC correcto debe cumplir.
+las áreas: propiedades que cualquier TAC correcto debe cumplir.
 
   * Cada `call f, n` va precedido por exactamente `n` `param` seguidos.
   * Si `f` es una función conocida, `n` coincide con su número de parámetros.
@@ -25,7 +24,7 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 _VALID = sorted(glob.glob(os.path.join(_HERE, "*", "valido_*.cps")))
 
 _FUNC = re.compile(r"func ([^\s(]+)\((.*)\):")
-_CALL = re.compile(r"(?:\$t\d+ = )?call (\S+), (\d+)")
+_CALL = re.compile(r"(?:\$t\d+ = )?call(virt)? (\S+), (\d+)")
 _TEMP = re.compile(r"\$t(\d+)")
 _LABEL_USE = re.compile(r"(?:goto|try) (L\d+)$")
 _LABEL_DEF = re.compile(r"(L\d+):$")
@@ -70,12 +69,14 @@ def test_tac_invariants(path):
             call = _CALL.fullmatch(line)
             if not call:
                 continue
-            callee, count = call.group(1), int(call.group(2))
+            callee, count = call.group(2), int(call.group(3))
             pushed = 0
             while index - pushed - 1 >= 0 and instructions[index - pushed - 1].startswith("param "):
                 pushed += 1
             assert pushed == count, f"{name}: `{line}` tiene {pushed} param seguidos"
-            if callee in arity:
+            if call.group(1):  # callvirt: el destino es un temporal con la tabla
+                assert instructions[index - pushed - 1].startswith(f"{callee} = "), line
+            elif callee in arity:
                 assert count == arity[callee], f"{name}: `{line}` y {callee} tiene {arity[callee]} parámetros"
 
         defined = [m.group(1) for line in body if (m := _LABEL_DEF.fullmatch(line))]

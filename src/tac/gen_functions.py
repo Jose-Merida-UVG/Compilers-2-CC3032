@@ -3,7 +3,8 @@
 Cada función es una unidad del Emitter con su propio pool de temporales; las
 anidadas se emiten después de la contenedora y los métodos reciben `this` como
 primer parámetro. Una llamada evalúa todos sus argumentos antes de emitir los
-`param`, para que las llamadas anidadas no intercalen los suyos. La cadena
+`param`, para que las llamadas anidadas no intercalen los suyos. Una llamada a
+método con `slot` se despacha por la tabla del receptor. La cadena
 `leftHandSide` (gen_classes.py) usa `_emit_call` por cada `( )`.
 """
 
@@ -114,25 +115,34 @@ class FunctionMixin:
         callee_type: Optional[Type],
         receiver: Optional[str] = None,
         statement: bool = False,
+        slot: Optional[int] = None,
     ) -> Optional[str]:
         """Emite la llamada; `receiver` es el objeto de un método y cuenta como
-        primer argumento. Devuelve el temporal del resultado o None si no hay."""
+        primer argumento. Con `slot` la llamada es virtual: se carga la tabla del
+        receptor y su entrada `slot` es el destino. Devuelve el temporal del
+        resultado o None si no hay."""
         function = callee_type if isinstance(callee_type, FunctionType) else None
         args = self._eval_args(call_ctx.arguments(), function.params if function else [])
 
         count = len(args)
+        if slot is not None and receiver is not None:
+            table = self.e.new_temp()
+            self.e.emit(f"{table} = vtable {receiver}")
+            self.e.emit(f"{table} = {table}[{slot}]")
+            callee = table
         if receiver is not None:
             self._push_params([receiver])
             count += 1
         self._push_params(args)
         self.e.free(callee)
 
+        virtual = slot is not None and receiver is not None
         # Sin destino si el valor se descarta o la función es void
         if statement or (function is not None and isinstance(function.ret, VoidType)):
-            self.e.emit(call_instruction(callee, count))
+            self.e.emit(call_instruction(callee, count, virtual=virtual))
             return None
         result = self.e.new_temp()
-        self.e.emit(call_instruction(callee, count, result))
+        self.e.emit(call_instruction(callee, count, result, virtual=virtual))
         return result
 
     @staticmethod

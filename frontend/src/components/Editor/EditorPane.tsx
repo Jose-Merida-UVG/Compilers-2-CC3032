@@ -5,6 +5,8 @@ import { registerCompiscriptLanguage, registerOutputLanguage } from "../../lib/m
 import ParseTreeViewer from "../ParseTreeViewer/ParseTreeViewer";
 import SymbolTableViewer from "../SymbolTableViewer/SymbolTableViewer";
 import TacViewer from "../TacViewer/TacViewer";
+import AsmViewer from "../AsmViewer/AsmViewer";
+import ActivationViewer from "../ActivationViewer/ActivationViewer";
 import MarkdownViewer from "../MarkdownViewer/MarkdownViewer";
 import { useEffect, useRef } from "react";
 import "./Editor.css";
@@ -12,6 +14,12 @@ import "./Editor.css";
 interface Props {
   tabs: EditorTab[];
   activeTab: string | null;
+  focused: boolean;
+  canMove: boolean;
+  moveLabel: string;
+  style?: React.CSSProperties;
+  onFocus: () => void;
+  onMoveTab: (p: string) => void;
   onSelectTab: (p: string) => void;
   onCloseTab: (p: string) => void;
   onChangeContent: (p: string, c: string) => void;
@@ -21,15 +29,23 @@ interface Props {
 }
 
 export default function EditorPane({
-  tabs, activeTab, onSelectTab, onCloseTab, onChangeContent, onSave, onRunFile, location,
+  tabs, activeTab, focused, canMove, moveLabel, style, onFocus, onMoveTab, onSelectTab, onCloseTab, onChangeContent, onSave, onRunFile, location,
 }: Props) {
   const active = tabs.find((t) => t.path === activeTab) ?? null;
   const isRunnable = !!onRunFile;
   const isTreeTab = !!(active?.treeData);
   const isSymbolTableTab = !!(active?.symbolTableData);
   const isTacTab = !!(active?.tacData);
+  const isAsmTab = !!(active?.asmData);
+  const isActivationTab = !!(active?.activationData);
   const isMarkdown = activeTab?.endsWith(".md") ?? false;
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
+  const tabBarRef = useRef<HTMLDivElement>(null);
+
+  // La barra se desplaza (sin scrollbar visible): la pestaña activa siempre queda a la vista
+  useEffect(() => {
+    tabBarRef.current?.querySelector(".tab.active")?.scrollIntoView({ inline: "nearest", block: "nearest" });
+  }, [activeTab, tabs.length]);
 
   const revealLocation = (editor: Monaco.editor.IStandaloneCodeEditor) => {
     if (!location || location.path !== activeTab) return;
@@ -48,7 +64,7 @@ export default function EditorPane({
   };
 
   useEffect(() => {
-    if (isTreeTab || isSymbolTableTab || isTacTab || isMarkdown) return;
+    if (isTreeTab || isSymbolTableTab || isTacTab || isAsmTab || isActivationTab || isMarkdown) return;
 
     const frame = requestAnimationFrame(() => {
       if (editorRef.current) {
@@ -57,7 +73,7 @@ export default function EditorPane({
     });
 
     return () => cancelAnimationFrame(frame);
-  }, [location, activeTab, isTreeTab, isSymbolTableTab, isTacTab, isMarkdown]);
+  }, [location, activeTab, isTreeTab, isSymbolTableTab, isTacTab, isAsmTab, isActivationTab, isMarkdown]);
 
   const handleBeforeMount = (monaco: typeof Monaco) => {
     registerCompiscriptLanguage(monaco);
@@ -72,14 +88,21 @@ export default function EditorPane({
   };
 
   return (
-    <div className="editor-pane" onKeyDown={handleKeyDown}>
+    <div
+      className={`editor-pane ${focused ? "" : "editor-pane--unfocused"}`}
+      style={style}
+      onKeyDown={handleKeyDown}
+      onMouseDownCapture={onFocus}
+      onFocusCapture={onFocus}
+    >
       {/* Tab bar */}
       {tabs.length > 0 && (
-        <div className="tab-bar">
+        <div className="tab-bar" ref={tabBarRef}>
           {tabs.map((tab) => (
             <div
               key={tab.path}
               className={`tab ${tab.path === activeTab ? "active" : ""}`}
+              title={tab.path}
               onClick={() => onSelectTab(tab.path)}
             >
               <span className="tab__label">{tab.label}</span>
@@ -97,6 +120,15 @@ export default function EditorPane({
         <div className="editor-toolbar">
           <span className="editor-toolbar__path">{active.path}</span>
           <div className="editor-toolbar__actions">
+            {canMove && (
+              <button
+                className="toolbar-pill"
+                title="Ver esta pestaña en el otro panel"
+                onClick={() => onMoveTab(active.path)}
+              >
+                {moveLabel}
+              </button>
+            )}
             {isRunnable && (
               <button className="toolbar-pill toolbar-pill--run" onClick={() => onRunFile?.(activeTab!)}>
                 ▶ Compilar
@@ -115,6 +147,10 @@ export default function EditorPane({
             <SymbolTableViewer data={active.symbolTableData!} />
           ) : isTacTab ? (
             <TacViewer data={active.tacData!} />
+          ) : isAsmTab ? (
+            <AsmViewer data={active.asmData!} />
+          ) : isActivationTab ? (
+            <ActivationViewer data={active.activationData!} />
           ) : isMarkdown ? (
             <MarkdownViewer content={active.content} />
           ) : (
@@ -162,10 +198,10 @@ function Welcome() {
   return (
     <div className="editor-welcome">
       <div className="editor-welcome__badge">Compiscript</div>
-      <p className="editor-welcome__sub">Lexical, Syntax &amp; Semantic Analysis · Intermediate Code (TAC)</p>
+      <p className="editor-welcome__sub">Lexical, Syntax &amp; Semantic Analysis · Intermediate Code (TAC) · MIPS Assembly</p>
       <div className="editor-welcome__hints">
         <Hint keys={["Ctrl", "S"]} label="Force save (auto-saves after 200ms)" />
-        <Hint keys={["▶ Compilar"]} label="Analiza el archivo .cps: errores, árbol sintáctico, tabla de símbolos y TAC" />
+        <Hint keys={["▶ Compilar"]} label="Analiza el archivo .cps: errores, árbol sintáctico, tabla de símbolos, TAC, ensamblador MIPS y registros de activación" />
       </div>
     </div>
   );

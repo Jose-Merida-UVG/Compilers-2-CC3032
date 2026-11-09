@@ -1,0 +1,14 @@
+let a: integer = 17;
+let b: integer = 5;
+print(a + b);
+print(a - b);
+print(a * b);
+print(a / b);
+print(a % b);
+print(-a);
+print(a * 8);
+print(a + 1000);
+print(a - 20);
+print(100000 + a);
+let c: integer = (a + b) * (a - b) / 2 - 7 % 4;
+print(c);

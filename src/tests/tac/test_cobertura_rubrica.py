@@ -57,9 +57,9 @@ def _read_all(paths: list[str]) -> str:
 
 
 def test_rubric_adds_up_to_25_points():
-    # "Diseño del código intermedio" (3 pts) es el documento LenguajeIntermedio.md
+    # "Diseño del código intermedio" (3 pts) es el documento docs/tac.md
     assert sum(points for _, points, _, _ in RUBRICA.values()) + 3 == 25
-    assert os.path.exists(os.path.join(_HERE, "..", "..", "..", "docs", "proyecto2", "LenguajeIntermedio.md"))
+    assert os.path.exists(os.path.join(_HERE, "..", "..", "..", "docs", "tac.md"))
 
 
 @pytest.mark.parametrize("area", RUBRICA)
@@ -79,7 +79,9 @@ def test_valid_sources_use_the_rubric_constructs(area):
 @pytest.mark.parametrize("area", RUBRICA)
 def test_generated_tac_contains_the_expected_instructions(area):
     _, _, _, tac_fragments = RUBRICA[area]
-    tac = _read_all(_files(area, "valido_*.tac"))
+    tac = "\n".join(
+        "\n".join(analyze_file(path)["tac"]) for path in _files(area, "valido_*.cps")
+    )
     missing = [t for t in tac_fragments if t not in tac]
     assert not missing, f"{area}: el TAC no contiene {missing}"
 
@@ -87,7 +89,8 @@ def test_generated_tac_contains_the_expected_instructions(area):
 @pytest.mark.parametrize("area", RUBRICA)
 def test_area_has_working_demo_files(area):
     """La demo del IDE: un programa válido (con TAC) y uno inválido (sin TAC)."""
-    valid = analyze_file(os.path.join(_DEMOS, f"{area}-valido.cps"))
+    number = f"{list(RUBRICA).index(area) + 1:02d}"  # 01-... en el orden de la rúbrica
+    valid = analyze_file(os.path.join(_DEMOS, f"{number}-{area}-valido.cps"))
     assert valid["errors"] == [] and valid["tac"]
-    invalid = analyze_file(os.path.join(_DEMOS, f"{area}-invalido.cps"))
+    invalid = analyze_file(os.path.join(_DEMOS, f"{number}-{area}-invalido.cps"))
     assert invalid["errors"] and invalid["tac"] is None
