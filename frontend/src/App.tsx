@@ -3,6 +3,7 @@ import FileExplorer from "./components/Sidebar/FileExplorer";
 import EditorPane from "./components/Editor/EditorPane";
 import TerminalPane from "./components/Terminal/TerminalPane";
 import StatusBar from "./components/StatusBar/StatusBar";
+import { isValidActivation } from "./components/ActivationViewer/ActivationViewer";
 import type { FileNode, EditorTab, CompilerDiagnostic, EditorLocation } from "./types";
 import { api } from "./api";
 import "./App.css";
@@ -344,7 +345,7 @@ export default function App() {
           }
         }
 
-        if (result.activation) {
+        if (isValidActivation(result.activation)) {
           const activationTab: EditorTab = {
             path: activationTabPath,
             label: `activación · ${base}`,
