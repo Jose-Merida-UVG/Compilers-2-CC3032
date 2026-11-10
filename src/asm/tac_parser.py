@@ -155,6 +155,17 @@ def _split_params(text: str) -> list[str]:
     return out
 
 
+# identificadores que pueden ser variables: no precedidos de `$` (temporales),
+# `.` (campos) ni de otro carácter de palabra
+_RE_IDENT = re.compile(r"(?<![\w$.])[A-Za-z_]\w*")
+_RE_STRLIT = re.compile(r'"(?:[^"\\]|\\.)*"')
+_TAC_WORDS = {
+    "goto", "if", "ifFalse", "param", "call", "callvirt", "return", "print", "newarray",
+    "new", "len", "itof", "try", "endtry", "catch", "func", "endfunc", "class", "endclass",
+    "vtable", "true", "false", "null", "this",
+}
+
+
 # ── Información sacada de la tabla de símbolos ───────────────────────────
 class _SymbolInfo:
     def __init__(self, table: dict):
@@ -163,13 +174,18 @@ class _SymbolInfo:
         self.classes: dict[str, dict] = {}
         self.func_types: dict[str, tuple[list[Ty], Ty]] = {}
         self.global_symbols: dict[str, dict] = {}
-        self._walk(self.root, None)
+        # closures: función anidada -> función que la contiene, y variables de
+        # una función que otra anidada usa -> su casa fija (ver `find_captures`)
+        self.parent_fn: dict[str, Optional[str]] = {}
+        self.captured: dict[tuple[str, str], dict] = {}
+        self.static_end = 0
+        self._walk(self.root, None, ())
         if self.root.get("frame"):
             self.func_scopes[self.root["frame"]["label"]] = self.root
         self.global_symbols = self._collect_data(self.root)
 
     # recorrido completo para indexar funciones, clases y tipos de funciones
-    def _walk(self, scope: dict, enclosing_class: Optional[str]) -> None:
+    def _walk(self, scope: dict, enclosing_class: Optional[str], fn_chain: tuple) -> None:
         for sym in scope.get("symbols", []):
             if sym.get("kind") == "FUNCTION" and sym.get("label"):
                 m = _RE_FUNCTYPE.match(sym.get("type") or "")
@@ -190,9 +206,12 @@ class _SymbolInfo:
                 "parent": (scope.get("layout") or {}).get("parent"),
             }
         if kind == "FUNCTION" and scope.get("frame"):
-            self.func_scopes[scope["frame"]["label"]] = scope
+            label = scope["frame"]["label"]
+            self.func_scopes[label] = scope
+            self.parent_fn[label] = fn_chain[-1] if fn_chain else None
+            fn_chain = fn_chain + (label,)
         for child in scope.get("children", []):
-            self._walk(child, name if kind == "CLASS" else enclosing_class)
+            self._walk(child, name if kind == "CLASS" else enclosing_class, fn_chain)
 
     # símbolos de datos de una unidad: propios + los de sus bloques
     def _collect_data(self, scope: dict) -> dict[str, dict]:
@@ -209,8 +228,76 @@ class _SymbolInfo:
         scope = self.func_scopes.get(label)
         local = self._collect_data(scope) if scope is not None else {}
         merged = dict(self.global_symbols)
+        # variables de funciones que contienen a esta, de la más externa a la más
+        # cercana (la más cercana tapa a las demás, como en el alcance léxico)
+        for anc in reversed(self.ancestors(label)):
+            for (owner, name), sym in self.captured.items():
+                if owner == anc:
+                    merged[name] = sym
+        # las propias, y las que otra función anidada captura pasan a su casa fija
+        for name in list(local):
+            if (label, name) in self.captured:
+                local[name] = self.captured[(label, name)]
         merged.update(local)
         return merged
+
+    def ancestors(self, label: str) -> list[str]:
+        """Funciones que contienen a `label`, de la más cercana a la más externa."""
+        out: list[str] = []
+        parent = self.parent_fn.get(label)
+        while parent is not None and parent not in out:
+            out.append(parent)
+            parent = self.parent_fn.get(parent)
+        return out
+
+    def find_captures(self, lines: list[str]) -> None:
+        """Closures: una función anidada que usa una variable (o parámetro) de la
+        función que la contiene no puede alcanzar el marco de esta. Esas
+        variables se guardan en una casa fija del área global (`gp+N`), tanto
+        para la función que las declara como para las anidadas.
+
+        Limitación: la casa es única, así que no vale si la función que declara
+        la variable se vuelve a llamar mientras otra activación suya sigue viva
+        (recursión con closure).
+        """
+        bodies: dict[str, list[str]] = {}
+        current: Optional[str] = None
+        for raw in lines:
+            t = raw.strip()
+            m = _RE_FUNC.match(t)
+            if m:
+                current = m.group(1)
+                bodies[current] = []
+            elif t == "endfunc":
+                current = None
+            elif current is not None:
+                bodies[current].append(t)
+
+        offset = _globals_end(self)
+        for label, body in bodies.items():
+            ancestors = self.ancestors(label)
+            if not ancestors or label not in self.func_scopes:
+                continue
+            own = self._collect_data(self.func_scopes[label])
+            refs: set[str] = set()
+            for t in body:
+                refs.update(_RE_IDENT.findall(_RE_STRLIT.sub('""', t)))
+            for name in sorted(refs - _TAC_WORDS):
+                if name in own:
+                    continue
+                for anc in ancestors:  # la más cercana que la declare
+                    data = self._collect_data(self.func_scopes[anc]) if anc in self.func_scopes else {}
+                    if name not in data:
+                        continue
+                    if (anc, name) not in self.captured:
+                        sym = data[name]
+                        size = WORD if sym.get("kind") == "PARAMETER" else int(sym.get("size") or WORD)
+                        self.captured[(anc, name)] = {
+                            **sym, "address": f"gp+{offset}", "size": size, "static": True,
+                        }
+                        offset += _round(size)
+                    break
+        self.static_end = offset
 
     def field(self, cls: Optional[str], name: str) -> Optional[dict]:
         """Entrada del layout (name, offset, size) del campo `name` de `cls`."""
@@ -523,6 +610,7 @@ class _Param(Instr):
 def parse_tac(lines: list[str], symbol_table: dict) -> Program:
     """Convierte el TAC en un `Program` tipado."""
     info = _SymbolInfo(symbol_table)
+    info.find_captures(lines)
     warnings: list[str] = []
     units: list = []
     current_class: Optional[ClassUnit] = None
@@ -610,10 +698,15 @@ def _round(n: int) -> int:
     return (n + WORD - 1) // WORD * WORD
 
 
-def _globals_size(info: _SymbolInfo) -> int:
+def _globals_end(info: _SymbolInfo) -> int:
+    """Fin del área de las variables globales (sin las casas de las capturadas)."""
     end = 0
     for sym in info.global_symbols.values():
         addr = sym.get("address") or ""
         if addr.startswith("gp+"):
             end = max(end, int(addr[3:]) + int(sym.get("size") or WORD))
-    return max(WORD, _round(end))
+    return _round(end)
+
+
+def _globals_size(info: _SymbolInfo) -> int:
+    return max(WORD, _globals_end(info), info.static_end)
