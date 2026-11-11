@@ -72,6 +72,10 @@ class FrameInfo:
         m = _TEMP.match(op.text)
         if m:
             return self.temp_home(int(m.group(1)))
+        sym = self.unit.symbols.get(op.text)
+        if sym is not None and sym.get("static"):  # capturada por una función anidada
+            base, off = _parse_address(sym["address"])
+            return Home(base, off, int(sym.get("size") or WORD))
         if op.text in self.unit.params:
             return self.param_home(self.unit.params.index(op.text))
         sym = self.unit.symbols.get(op.text)
@@ -92,6 +96,13 @@ class FrameInfo:
         asm.ins("move  $fp, $sp")
         if self.alloc:
             asm.ins(f"addiu $sp, $sp, -{self.alloc}")
+        for i, name in enumerate(self.unit.params):
+            sym = self.unit.symbols.get(name)
+            if sym is not None and sym.get("static"):
+                # parámetro que una función anidada usa: pasa de la pila a su casa fija
+                _, off = _parse_address(sym["address"])
+                asm.ins(f"lw    $v1, {self.param_home(i).mem()}")
+                asm.ins(f"sw    $v1, {off}($gp)")
 
     def emit_epilogue(self, asm: AsmEmitter) -> None:
         asm.label(self.ret_label)
