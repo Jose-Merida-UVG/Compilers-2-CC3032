@@ -9,7 +9,7 @@ from __future__ import annotations
 from asm.generator import generate_asm
 
 from antlr4 import FileStream, InputStream, CommonTokenStream
-from antlr4.tree.Tree import TerminalNode
+from antlr4.tree.Tree import TerminalNodeImpl
 
 from CompiscriptLexer import CompiscriptLexer
 from CompiscriptParser import CompiscriptParser
@@ -58,7 +58,7 @@ SUCCESS_MESSAGE = (
 def _tree_to_dict(node, rule_names: list[str]) -> dict:
     """Convert an ANTLR parse tree node into a plain dict tree, JSON-friendly
     for the frontend's parse-tree viewer."""
-    if isinstance(node, TerminalNode):
+    if isinstance(node, TerminalNodeImpl):
         return {"label": node.getText(), "isTerminal": True, "children": []}
     name = rule_names[node.getRuleIndex()]
     return {
@@ -152,7 +152,7 @@ def analyze(input_stream: InputStream) -> dict:
         if tac is not None and generator is not None:
             tac_stats = _tac_stats(tac, generator, global_scope)
 
-    if not errors and tac is not None:
+    if not errors and tac is not None and symbol_table_json is not None:
         try:
             # La única entrada de P3 es TAC textual + JSON de símbolos.
             generated = generate_asm(tac, symbol_table_json)
@@ -181,6 +181,9 @@ def analyze(input_stream: InputStream) -> dict:
             "No se generó código intermedio ni ensamblador."
         )
     else:
+        # Sin errores el TAC y el ensamblador existen: si hubieran fallado,
+        # arriba se habría agregado un error.
+        assert tac_stats is not None and asm_stats is not None
         status_message = (
             f"{SUCCESS_MESSAGE} "
             f"Código intermedio generado ({tac_stats['instructions']} instrucciones). "

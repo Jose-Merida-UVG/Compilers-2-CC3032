@@ -4,8 +4,9 @@ Serves a small file-CRUD API over a `workspace/` directory (repo root) plus a
 `/api/run` endpoint that lexes, parses and semantically analyses a `.cps`
 file (see compiler.py) and returns errors, the parse tree and the symbol
 table for the frontend's viewers, plus the three-address code (TAC) when the
-program has no errors. Each run also persists `.out`, `.tree`, `.symbols` and
-`.tac` under `workspace/output/<stem>/`.
+program has no errors, and the MIPS32 assembly (plus activation records/tree)
+generated from that TAC. Each run also persists `.out`, `.tree`, `.symbols`,
+`.tac` and `.s` under `workspace/output/<stem>/`.
 
 Runs with:
     PYTHONPATH=generated:src uvicorn server:app --app-dir src --reload --port 8080
@@ -193,6 +194,14 @@ def run_file(body: RunBody):
     elif tac_path.exists():
         tac_path.unlink()
 
+    # Igual con el ensamblador (R9): solo existe sin errores; si no, se borra el
+    # de una corrida anterior para no mostrar uno viejo. Nombre: <archivo>.cps.s
+    asm_path = run_dir / f"{p.name}.s"
+    if result["asm"] is not None:
+        asm_path.write_text("\n".join(result["asm"]) + "\n", encoding="utf-8")
+    elif asm_path.exists():
+        asm_path.unlink()
+
     return {
         "lines": lines,
         "errors": result["errors"],
@@ -201,4 +210,9 @@ def run_file(body: RunBody):
         "symbolTable": result["symbol_table_json"],
         "tac": result["tac"],
         "tacStats": result["tac_stats"],
+        # null con errores (el IDE distingue null de "ausente")
+        "asm": result["asm"],
+        "asmRaw": result["asm_raw"],
+        "asmStats": result["asm_stats"],
+        "activation": result["activation"],
     }
