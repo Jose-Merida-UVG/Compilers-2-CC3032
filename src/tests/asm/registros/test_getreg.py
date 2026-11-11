@@ -187,3 +187,74 @@ def test_block_liveness_keeps_a_temporary_alive_across_blocks():
     live = block_live_out(blocks)
     assert "$t1" in live[0]
     assert "$t1" not in live[-1]
+
+def _dirty_pressure_env():
+    values = [temp(i + 1) for i in range(10)]
+    extra = temp(11)
+    block = [Copy(op, const(i + 1)) for i, op in enumerate(values)]
+    block.append(Copy(extra, const(99), line="$t11 = 99"))
+    # Todos siguen vivos; t10 es el de uso más lejano.
+    block += [Copy(var(f"out{i}"), op) for i, op in enumerate(values)]
+    block.append(Copy(var("last"), extra))
+    env = Env(block)
+    for i, op in enumerate(values):
+        env.at(i)
+        reg = env.regs.def_(op)
+        env.asm.ins(f"li {reg}, {i + 1}")
+        env.regs.end_instr()
+    env.at(10)
+    return env, values, extra
+
+
+def test_dirty_spill_saves_exact_farthest_value_and_records_trace():
+    env, values, extra = _dirty_pressure_env()
+    r = env.regs
+    victim = values[-1]
+    old_reg = r.op_reg[victim.key]
+    before = len(env.asm._text)
+    result = r.def_(extra)
+    assert result == old_reg
+    emitted = [line.split() for line in env.asm._text[before:]]
+    assert emitted == [["sw", old_reg + ",", r._home(victim).mem()]]
+    assert victim.key not in r.op_reg
+    assert r.op_reg[extra.key] == old_reg
+    assert r.trace[-2:] == [
+        {"instr": "$t11 = 99", "op": victim.key, "reg": old_reg, "reason": "spill"},
+        {"instr": "$t11 = 99", "op": extra.key, "reg": old_reg, "reason": "spill"},
+    ]
+
+
+def test_avoid_protects_farthest_value_under_pressure():
+    env, values, extra = _dirty_pressure_env()
+    r = env.regs
+    protected = r.op_reg[values[-1].key]
+    victim = values[-2]
+    victim_reg = r.op_reg[victim.key]
+    before = len(env.asm._text)
+    result = r.def_(extra, avoid=(protected,))
+    assert result == victim_reg and result != protected
+    assert r.op_reg[values[-1].key] == protected
+    assert protected in r.dirty
+    emitted = [line.split() for line in env.asm._text[before:]]
+    assert emitted == [["sw", victim_reg + ",", r._home(victim).mem()]]
+    assert r.trace[-2]["op"] == victim.key
+    assert r.trace[-2]["reason"] == "spill"
+
+
+def test_avoid_prevents_reusing_a_dead_source():
+    source, target = temp(1), temp(2)
+    env = Env([Copy(source, const(7)), Copy(target, source), Copy(var("out"), target)])
+    r = env.regs
+    env.at(0)
+    r.def_(source)
+    r.end_instr()
+    env.at(1)
+    source_reg = r.use(source)
+    assert r.next_use(source.key) == DEAD
+    target_reg = r.def_(target, avoid=(source_reg,))
+    assert target_reg != source_reg
+    assert r.op_reg[source.key] == source_reg
+    assert r.trace[-1]["reason"] == "libre"
+    r.end_instr()
+    assert source.key not in r.op_reg
+    assert r.op_reg[target.key] == target_reg

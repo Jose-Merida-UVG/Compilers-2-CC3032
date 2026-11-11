@@ -90,3 +90,72 @@ def test_slots_are_ordered_from_high_to_low_addresses():
 def test_main_has_its_own_frame_with_no_locals():
     main = _frames()["__main"]
     assert main.locals_size == 0 and main.fn_label == "f___main"
+
+def test_boolean_parameter_slot_has_four_bytes():
+    slots = {s["name"]: s for s in _frames()["f"].slots()}
+    assert slots["b"] == {
+        "name": "b",
+        "kind": "param",
+        "offset": 12,
+        "address": "fp+12",
+        "size": 4,
+    }
+
+
+def test_factorial_frame_slots():
+    source = """
+    function fact(n: integer): integer {
+        if (n <= 1) { return 1; }
+        return n * fact(n - 1);
+    }
+    print(fact(5));
+    """
+    result = analyze(InputStream(source))
+    assert result["errors"] == []
+
+    program = parse_tac(result["tac"], result["symbol_table_json"])
+    unit = next(u for u in program.functions() if u.label == "fact")
+    frame = FrameInfo(unit)
+    slots = frame.slots()
+
+    assert slots[:3] == [
+        {"name": "n", "kind": "param", "offset": 8,
+         "address": "fp+8", "size": 4},
+        {"name": "$ra", "kind": "saved", "offset": 4,
+         "address": "fp+4", "size": 4},
+        {"name": "$fp", "kind": "saved", "offset": 0,
+         "address": "fp+0", "size": 4},
+    ]
+    temps = [s for s in slots if s["kind"] == "temp"]
+    assert temps
+    assert all(s["offset"] < 0 and s["size"] == 4 for s in temps)
+    assert len({s["offset"] for s in slots}) == len(slots)
+
+
+def test_method_slots_place_this_before_explicit_parameters():
+    from asm.ir import FuncUnit
+
+    # Prueba unitaria del frame: no requiere los selectores de objetos.
+    unit = FuncUnit(
+        label="Contador.sumar",
+        params=["this", "cantidad"],
+        body=[],
+        frame={"locals_size": 0, "temps": 1},
+        owner_class="Contador",
+    )
+    frame = FrameInfo(unit)
+
+    assert frame.home(_op("this")).mem() == "8($fp)"
+    assert frame.home(_op("cantidad")).mem() == "12($fp)"
+    assert frame.slots() == [
+        {"name": "cantidad", "kind": "param", "offset": 12,
+         "address": "fp+12", "size": 4},
+        {"name": "this", "kind": "param", "offset": 8,
+         "address": "fp+8", "size": 4},
+        {"name": "$ra", "kind": "saved", "offset": 4,
+         "address": "fp+4", "size": 4},
+        {"name": "$fp", "kind": "saved", "offset": 0,
+         "address": "fp+0", "size": 4},
+        {"name": "$t1", "kind": "temp", "offset": -4,
+         "address": "fp-4", "size": 4},
+    ]
