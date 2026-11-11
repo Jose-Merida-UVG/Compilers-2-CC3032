@@ -30,7 +30,15 @@ from compiler import analyze
 from support.minisim import Sim
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-AREAS = ["aritmetica", "logicas", "arreglos", "control_flujo", "funciones", "recursividad"]
+AREAS = [
+    "declaraciones",
+    "aritmetica",
+    "logicas",
+    "arreglos",
+    "control_flujo",
+    "funciones",
+    "recursividad",
+]
 
 
 def _cases(pattern: str) -> list[str]:
