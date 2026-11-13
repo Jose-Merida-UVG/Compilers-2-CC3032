@@ -125,12 +125,12 @@ class Sim:
                 if m and not line.startswith('"'):
                     self.labels[m.group(1)] = len(text); line = m.group(2).strip()
                 if line: text.append(line)
-        for addr, item in pending_data:
-            self.w(addr, self.data_labels.get(item, int(item) if item.lstrip("-").isdigit() else self.labels.get(item,0)))
-        self.prog = text
-        self.pc = self.labels["main"]
         self.code_addr = {n: 0x00400000 + 4*i for n, i in self.labels.items()}
         self.addr_code = {v: k for k, v in self.code_addr.items()}
+        for addr, item in pending_data:  # un `.word etiqueta` guarda su dirección
+            self.w(addr, self.data_labels.get(item, int(item) if item.lstrip("-").isdigit() else self.code_addr.get(item, 0)))
+        self.prog = text
+        self.pc = self.labels["main"]
 
     def val(self, tok):
         tok = tok.strip()

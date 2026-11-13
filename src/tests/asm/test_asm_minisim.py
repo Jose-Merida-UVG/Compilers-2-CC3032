@@ -38,6 +38,8 @@ AREAS = [
     "control_flujo",
     "funciones",
     "recursividad",
+    "clases",
+    "herencia",
 ]
 
 

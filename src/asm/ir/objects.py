@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from asm.ir.base import Instr, _vals
 from asm.ir.operands import Operand
+from asm.ir.types import UNKNOWN, Ty
 
 
 @dataclass(repr=False)
@@ -35,6 +36,7 @@ class FieldStore(Instr):
     src: Operand
     offset: int = 0
     fsize: int = 4
+    ty: Ty = UNKNOWN  # tipo del campo: decide si se guarda como float
     line: str = ""
 
     def reads(self) -> list[Operand]:

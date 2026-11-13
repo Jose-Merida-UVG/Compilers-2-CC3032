@@ -529,7 +529,8 @@ class _UnitParser:
         obj = self.operand(m.group(1))
         src = self.operand(m.group(3))
         cls, off, size = self._field_info(obj, m.group(2))
-        return FieldStore(obj, m.group(2), src, offset=off, fsize=size)
+        ty = self.info.field_type(cls, m.group(2))
+        return FieldStore(obj, m.group(2), src, offset=off, fsize=size, ty=ty)
 
     # -- asignaciones ----------------------------------------------------
     def _assign(self, dst_text: str, rest: str) -> Optional[Instr]:  # noqa: C901
