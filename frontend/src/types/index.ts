@@ -163,6 +163,25 @@ export interface RunOutput {
   activation?: ActivationData | null;
 }
 
+/** Resultado de ejecutar el programa en MARS (POST /api/exec). */
+export interface ExecOutput {
+  /** Errores de compilación; con alguno no se ejecuta nada. */
+  errors: string[];
+  statusMessage: string;
+  /** Se ejecutó (false con errores o si falta MARS). */
+  ran: boolean;
+  /** false si falta java o Mars4_5.jar en el servidor. */
+  available: boolean;
+  /** Lo que imprimió el programa. */
+  output: string;
+  stderr: string;
+  exitCode: number | null;
+  /** Pasó del límite de tiempo y se cortó. */
+  timedOut: boolean;
+  /** Límite en segundos. */
+  timeout: number;
+}
+
 /** Lo que muestra la pestaña de ensamblador. */
 export interface AsmData {
   /** Con mirilla. */
