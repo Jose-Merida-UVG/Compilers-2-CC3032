@@ -848,8 +848,8 @@ el layout de cada clase.
 * IDE: `make run` y **▶ Compilar** sobre un `.cps`; las vistas **Código
   intermedio (TAC)** y **Tabla de símbolos** muestran el resultado y se guarda
   `workspace/output/<nombre>/<nombre>.cps.tac`.
-* CLI: `make cli FILE=workspace/input/comp-tac/06-funciones-valido.cps`.
-* Casos de demostración: `workspace/input/comp-tac/` (un `NN-<área>-valido.cps` y un
+* CLI: `make cli FILE=workspace/input/comp-mips/06-funciones-valido.cps`.
+* Casos de demostración: `workspace/input/comp-mips/` (un `NN-<área>-valido.cps` y un
   `NN-<área>-invalido.cps` por cada fila de la rúbrica, numerados en su orden, más
   `13-recorrido-completo.cps` con todas las áreas juntas).
 
@@ -899,6 +899,6 @@ escribió cada línea es el historial de commits.
 |---|---|---|---|
 | Camila Richter (`Cami`) | diseño del TAC (3), reciclaje de temporales (3), GUI | `instructions.py`, `emitter.py`, `generator.py`; parche de anotaciones en `checker.py`; integración en `compiler.py`, `main.py` y `server.py`; `frontend/`; `compile_tac` en `conftest.py` y pruebas de `temporales/` | `program`, `statement`, `block` |
 | Marinés García (`NESHGP04`) | declaraciones (1), aritmética (1), lógicas (1), arreglos (1), control de flujo (3), try/catch (2) | `gen_core.py`, `gen_control.py`; pruebas de sus áreas | declaraciones, asignaciones, `print`, expresiones y operadores, literales, arreglos, `if`, bucles, `switch`, `break`/`continue`, `try`/`catch` |
-| Jose Antonio Mérida (`TonitoMC`) | funciones (2), recursividad (2), clases (2), herencia (2), tabla de símbolos (2) | `gen_functions.py`, `gen_classes.py`, `layout.py`, `symbols.py`; pruebas de `funciones/`, `recursividad/`, `clases/`, `herencia/` y `tabla_simbolos/`; demos de `workspace/input/comp-tac/` | `functionDeclaration`, `returnStatement`, `CallExpr`, `classDeclaration`, `NewExpr`, `ThisExpr`, `PropertyAccessExpr`, `PropertyAssignExpr`, `leftHandSide` |
+| Jose Antonio Mérida (`TonitoMC`) | funciones (2), recursividad (2), clases (2), herencia (2), tabla de símbolos (2) | `gen_functions.py`, `gen_classes.py`, `layout.py`, `symbols.py`; pruebas de `funciones/`, `recursividad/`, `clases/`, `herencia/` y `tabla_simbolos/`; demos de `workspace/input/comp-mips/` | `functionDeclaration`, `returnStatement`, `CallExpr`, `classDeclaration`, `NewExpr`, `ThisExpr`, `PropertyAccessExpr`, `PropertyAssignExpr`, `leftHandSide` |
 
 Para ver el detalle de cualquier archivo: `git log --follow --format='%h %an %s' -- <ruta>`.

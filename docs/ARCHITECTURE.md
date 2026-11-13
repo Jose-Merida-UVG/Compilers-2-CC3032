@@ -72,7 +72,7 @@ divergir.
 | `src/compiler.py` | Pipeline compartido. |
 | `src/server.py` + `frontend/` | IDE: endpoint `/api/run` y paneles de errores, árbol, tabla de símbolos y TAC. |
 | `src/tests/` | Pruebas: `semantic/<categoría>/` (P1) y `tac/<área>/` (P2). |
-| `workspace/` | Directorio de trabajo del IDE; `input/comp-tac/` tiene los demos del P2. |
+| `workspace/` | Directorio de trabajo del IDE; `input/comp-mips/` tiene los demos del P2 y del P3. |
 
 ## Herramientas
 

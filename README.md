@@ -54,7 +54,7 @@ Pipeline: `fuente → Lexer → Parser → SemanticChecker → TACGenerator → 
 - `src/tests/`: pruebas automáticas (`make test`). `src/tests/semantic/<categoría>/` tiene una batería de casos `.cps` por categoría de regla semántica, y `src/tests/tac/<área>/` tiene casos válidos e inválidos por cada punto de la rúbrica de TAC (los válidos deben compilar y generar TAC).
 - `src/tools/`: jar de ANTLR incluido, usado solo para generar el código.
 - `frontend/`: IDE de navegador (Vite + React/TS). Tiene explorador de archivos (selecciona el archivo de entrada), editor, panel de salida con errores navegables, visor del árbol de análisis, visor de la tabla de símbolos (con tamaños, offsets y registros de activación) y visor de TAC. Todos los resultados se muestran ahí, no solo en consola.
-- `workspace/`: directorio de trabajo del IDE. `input/` tiene programas `.cps` de ejemplo (`input/comp-tac/` tiene los demos de la rúbrica del P2) y `output/` guarda los resultados de cada corrida (`.out`, `.tree`, `.symbols`, `.tac`).
+- `workspace/`: directorio de trabajo del IDE. `input/` tiene programas `.cps` de ejemplo (`input/comp-mips/` tiene los demos del IDE: los de la rúbrica del P2 y los de MIPS) y `output/` guarda los resultados de cada corrida (`.out`, `.tree`, `.symbols`, `.tac`).
 - `docs/`: documentación (arquitectura, una guía por proyecto y los enunciados).
 
 ## Requisitos
@@ -104,7 +104,7 @@ make cli FILE=<ruta-al-archivo-fuente>
 Por ejemplo:
 
 ```
-make cli FILE=workspace/input/comp-tac/06-funciones-valido.cps
+make cli FILE=workspace/input/comp-mips/06-funciones-valido.cps
 ```
 
 Esto hace el análisis léxico y sintáctico del archivo y, si no hubo errores de
@@ -140,10 +140,13 @@ símbolos esperadas (`tabla_simbolos/valido_*.symbols.json`) se regeneran con
 `UPDATE_GOLDEN=1 make test ARGS="src/tests/tac/tabla_simbolos"`; hay que
 **revisar el diff**.
 
-Los programas de demostración del IDE están en `workspace/input/comp-tac/`: un
+Los programas de demostración del IDE están en `workspace/input/comp-mips/`: un
 `NN-<área>-valido.cps` y un `NN-<área>-invalido.cps` por cada punto de la rúbrica del
-Proyecto 2, numerados en el orden de la rúbrica (01 a 12), y `13-recorrido-completo.cps`,
-una demo que junta todas las áreas.
+Proyecto 2, numerados en el orden de la rúbrica (01 a 12), `13-recorrido-completo.cps`,
+una demo que junta todas las áreas, y dos del Proyecto 3: `14-registros` (muchos valores
+vivos, el asignador derrama a memoria) y `15-activacion` (llamadas anidadas, recursión y un
+método, para el árbol y los registros de activación). `make test` compila todos a MIPS y
+los ejecuta.
 
 ## IDE web (frontend y backend juntos)
 
