@@ -148,6 +148,17 @@ vivos, el asignador derrama a memoria) y `15-activacion` (llamadas anidadas, rec
 método, para el árbol y los registros de activación). `make test` compila todos a MIPS y
 los ejecuta.
 
+## Ejecutar el MIPS
+
+```
+make mips FILE=workspace/input/comp-mips/15-activacion-valido.cps
+```
+
+Compila el `.cps` a MIPS y lo ejecuta en MARS, imprimiendo lo que imprime el
+programa (`--save salida.s` en `src/run_mips.py` guarda además el ensamblador). Con
+errores no ejecuta nada. Necesita `java` y `Mars4_5.jar` (`MARS_JAR` o
+`src/tools/`); el IDE muestra el ensamblador pero no lo ejecuta.
+
 ## IDE web (frontend y backend juntos)
 
 ```
