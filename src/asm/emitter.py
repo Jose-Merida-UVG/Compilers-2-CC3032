@@ -12,7 +12,7 @@ import re
 INDENT = "    "
 
 
-# ── Nombres seguros ─────────────────────────────────────────────────────
+# Reemplaza . por _ y agrega el prefijo f_ para funciones.
 def mangle_func(name: str) -> str:
     """`fact` -> `f_fact`; `Animal.hablar` -> `f_Animal__hablar`;
     `__main` -> `f___main`."""
