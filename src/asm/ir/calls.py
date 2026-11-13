@@ -1,4 +1,4 @@
-"""Llamadas a funciones y llamadas virtuales."""
+"""Llamadas directas y virtuales."""
 
 from __future__ import annotations
 
@@ -11,9 +11,11 @@ from asm.ir.operands import Operand
 
 @dataclass(repr=False)
 class Call(Instr):
-    dst: Optional[Operand]
+    """`x = call f, n` (o `call f, n`), con sus `param` ya reunidos en `args`."""
+
+    dst: Optional[Operand]  # None si se descarta el resultado
     callee: str  # etiqueta TAC ("fact", "Animal.hablar")
-    args: list[Operand]  # ya agrupados; len(args) == n
+    args: list[Operand]  # en métodos, `this` es el primero
     line: str = ""
 
     def reads(self) -> list[Operand]:
@@ -25,10 +27,12 @@ class Call(Instr):
 
 @dataclass(repr=False)
 class CallVirt(Instr):
+    """`x = callvirt t, n`: llamada indirecta, `t` tiene la dirección del método."""
+
     dst: Optional[Operand]
-    target: Operand  # contiene la dirección del método
+    target: Operand
     args: list[Operand]
-    static_target: Optional[str] = None  # etiqueta resuelta por el tipo estático
+    static_target: Optional[str] = None  # método según el tipo estático, solo para tipos
     line: str = ""
 
     def reads(self) -> list[Operand]:

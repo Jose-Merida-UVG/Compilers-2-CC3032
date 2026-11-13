@@ -1,4 +1,4 @@
-"""Unidades del programa: funciones, clases y el programa completo."""
+"""Funciones, clases y el programa completo."""
 
 from __future__ import annotations
 
@@ -10,16 +10,16 @@ from asm.ir.base import Instr
 
 @dataclass
 class FuncUnit:
-    """Una función o método.
+    """Una función o método (`func ... endfunc`).
 
     label:   etiqueta TAC ("fact", "Animal.hablar", "__main")
-    params:  nombres de los parámetros en orden (incluye `this` en métodos)
-    body:    instrucciones
-    frame:   {"params_size","locals_size","temps","temps_size","saved_size",
-              "total_size"} (temps ya incluye los temporales realmente usados)
-    symbols: tac_name -> {"kind","type","address","size"} visibles en la
-             unidad (los de la propia función primero, luego los globales)
-    owner_class: nombre de la clase si es un método
+    params:  nombres de los parámetros en orden (`this` primero en métodos)
+    body:    las instrucciones
+    frame:   tamaños del marco: params_size, locals_size, temps, temps_size,
+             saved_size, total_size
+    symbols: nombre TAC -> {kind, type, address, size}, los de la función y
+             luego los globales
+    owner_class: clase a la que pertenece, si es un método
     """
 
     label: str
@@ -28,22 +28,26 @@ class FuncUnit:
     frame: dict
     symbols: dict = field(default_factory=dict)
     owner_class: Optional[str] = None
-    param_types: dict = field(default_factory=dict)
+    param_types: dict = field(default_factory=dict)  # parámetro -> Ty
 
 
 @dataclass
 class ClassUnit:
+    """Una clase (`class ... endclass`) con sus métodos."""
+
     name: str
     parent: Optional[str]
-    vtable: list[str]  # etiquetas TAC de los métodos, por slot
+    vtable: list[str]  # etiqueta del método de cada slot
     funcs: list[FuncUnit]
     layout: dict = field(default_factory=dict)
 
 
 @dataclass
 class Program:
+    """El TAC completo."""
+
     units: list  # FuncUnit | ClassUnit, en el orden del TAC
-    globals_size: int = 4
+    globals_size: int = 4  # bytes de variables globales
     classes: dict = field(default_factory=dict)  # nombre -> layout JSON
     func_types: dict = field(default_factory=dict)  # etiqueta -> (params, ret)
     warnings: list = field(default_factory=list)

@@ -16,10 +16,13 @@ gráfica. Cubre dos entregas del curso:
   ningún error (léxico, sintáctico ni semántico), se genera **código de tres
   direcciones (TAC)** como texto, y la tabla de símbolos se completa con
   tamaños, offsets, direcciones y registros de activación. Si hay cualquier
-  error **no se genera TAC**. El compilador no ejecuta el programa ni produce
-  código objeto.
+  error **no se genera TAC**.
+- **Proyecto 3 — código objeto:** con el TAC y la tabla de símbolos se genera
+  ensamblador **MIPS32** (para MARS/SPIM), con asignación de registros,
+  registros de activación, objetos con despacho dinámico y excepciones. Si hay
+  cualquier error no se genera MIPS. El compilador no ejecuta el programa.
 
-Pipeline: `fuente → Lexer → Parser → SemanticChecker → TACGenerator → layout`.
+Pipeline: `fuente → Lexer → Parser → SemanticChecker → TACGenerator → layout → generador de MIPS`.
 
 ## Documentación
 
@@ -32,6 +35,8 @@ Pipeline: `fuente → Lexer → Parser → SemanticChecker → TACGenerator → 
   intermedio (instrucciones, justificación, ejemplos fuente → TAC), el algoritmo
   de reciclaje de temporales, la tabla de símbolos para el código objeto, el
   generador, las pruebas y la autoría.
+- [docs/mips.md](docs/mips.md): Proyecto 3, con el IR, el modelo de memoria, el
+  asignador de registros, los selectores de instrucciones y el runtime.
 - [docs/enunciados/](docs/enunciados/): definición del lenguaje y requisitos
   del P1.
 
@@ -43,6 +48,7 @@ Pipeline: `fuente → Lexer → Parser → SemanticChecker → TACGenerator → 
 - `src/error_listener.py`: listener de errores de ANTLR que da formato en español a los errores léxicos y sintácticos y permite seguir tras el primer error.
 - `src/semantic/`: análisis semántico. `types.py` (sistema de tipos), `symbols.py` (tabla de símbolos y árbol de ámbitos), `errors.py`, `checker.py` (el visitor `SemanticChecker`, con todas las reglas; también anota cada nodo con su tipo y símbolo para la fase de TAC) y `layout.py` (tamaños, offsets, direcciones, registros de activación y layout de clases).
 - `src/tac/`: generación de código intermedio. `generator.py` (`TACGenerator`, une los cuatro mixins), `gen_core.py` (declaraciones, expresiones, condiciones, arreglos), `gen_control.py` (if, bucles, switch, try/catch), `gen_functions.py` (funciones, llamadas, return), `gen_classes.py` (clases, objetos, herencia), `emitter.py` (emisión de instrucciones y reciclaje de temporales) e `instructions.py` (convenciones de formato).
+- `src/asm/`: generación de MIPS. `ir/` (el IR: tipos, operandos e instrucciones), `tac_parser.py` (TAC texto → IR), `frames.py` (marcos de activación), `regalloc.py` (asignador de registros), `sel_*.py` (un selector por instrucción), `runtime.py` (rutinas de impresión, memoria y strings), `emitter.py` y `generator.py` (el driver). Ver [docs/mips.md](docs/mips.md).
 - `src/main.py`: punto de entrada del CLI (`make cli`).
 - `src/server.py`: backend FastAPI, con una API de archivos sobre `workspace/` y `/api/run`.
 - `src/tests/`: pruebas automáticas (`make test`). `src/tests/semantic/<categoría>/` tiene una batería de casos `.cps` por categoría de regla semántica, y `src/tests/tac/<área>/` tiene casos válidos e inválidos por cada punto de la rúbrica de TAC (los válidos deben compilar y generar TAC).

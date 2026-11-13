@@ -1,4 +1,4 @@
-"""Instrucciones de arreglos."""
+"""Arreglos: crear, longitud, leer y escribir un elemento."""
 
 from __future__ import annotations
 
@@ -10,8 +10,10 @@ from asm.ir.operands import Operand
 
 @dataclass(repr=False)
 class NewArray(Instr):
+    """`x = newarray n`"""
+
     dst: Operand
-    n: Operand
+    n: Operand  # cantidad de elementos
     line: str = ""
 
     def reads(self) -> list[Operand]:
@@ -23,6 +25,8 @@ class NewArray(Instr):
 
 @dataclass(repr=False)
 class Len(Instr):
+    """`x = len y`"""
+
     dst: Operand
     src: Operand
     line: str = ""
@@ -36,6 +40,9 @@ class Len(Instr):
 
 @dataclass(repr=False)
 class IndexLoad(Instr):
+    """`x = base[idx]`. Si `base` es de tipo `vtable`, es el slot `idx` de la
+    tabla de métodos (sin verificación de rango)."""
+
     dst: Operand
     base: Operand
     idx: Operand
@@ -50,6 +57,8 @@ class IndexLoad(Instr):
 
 @dataclass(repr=False)
 class IndexStore(Instr):
+    """`base[idx] = src`"""
+
     base: Operand
     idx: Operand
     src: Operand

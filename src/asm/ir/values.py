@@ -1,4 +1,4 @@
-"""Instrucciones sobre valores: copia, operaciones y `print`."""
+"""Copia, operaciones unarias y binarias, y `print`."""
 
 from __future__ import annotations
 
@@ -10,6 +10,8 @@ from asm.ir.operands import Operand
 
 @dataclass(repr=False)
 class Copy(Instr):
+    """`x = y`"""
+
     dst: Operand
     src: Operand
     line: str = ""
@@ -23,6 +25,8 @@ class Copy(Instr):
 
 @dataclass(repr=False)
 class Unary(Instr):
+    """`x = - y`, `x = ! y` o `x = itof y` (entero a float)."""
+
     dst: Operand
     op: str  # '-' | '!' | 'itof'
     src: Operand
@@ -37,6 +41,8 @@ class Unary(Instr):
 
 @dataclass(repr=False)
 class Binary(Instr):
+    """`x = a op b`"""
+
     dst: Operand
     a: Operand
     op: str  # + - * / % == != < <= > >=
@@ -52,6 +58,8 @@ class Binary(Instr):
 
 @dataclass(repr=False)
 class Print(Instr):
+    """`print x`"""
+
     src: Operand
     line: str = ""
 

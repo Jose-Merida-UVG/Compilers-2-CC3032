@@ -1,4 +1,4 @@
-"""Instrucciones de objetos: instancias, campos y tabla de métodos."""
+"""Objetos: `new`, leer y escribir campos, cargar la tabla de métodos."""
 
 from __future__ import annotations
 
@@ -10,10 +10,12 @@ from asm.ir.operands import Operand
 
 @dataclass(repr=False)
 class FieldLoad(Instr):
+    """`x = obj.campo`"""
+
     dst: Operand
     obj: Operand
     field: str
-    offset: int = 0  # offset del campo según el layout de la clase estática
+    offset: int = 0  # offset del campo dentro del objeto (el layout de la clase)
     fsize: int = 4  # tamaño del campo (1 si es boolean)
     line: str = ""
 
@@ -26,6 +28,8 @@ class FieldLoad(Instr):
 
 @dataclass(repr=False)
 class FieldStore(Instr):
+    """`obj.campo = src`"""
+
     obj: Operand
     field: str
     src: Operand
@@ -39,9 +43,12 @@ class FieldStore(Instr):
 
 @dataclass(repr=False)
 class New(Instr):
+    """`x = new Clase`: reserva el objeto y guarda su tabla de métodos en la
+    palabra 0."""
+
     dst: Operand
     cls: str
-    size: int = 4  # layout.size de la clase
+    size: int = 4  # bytes del objeto, tabla de métodos incluida
     line: str = ""
 
     def writes(self) -> list[Operand]:
@@ -50,6 +57,8 @@ class New(Instr):
 
 @dataclass(repr=False)
 class VTableLoad(Instr):
+    """`x = vtable obj`: la tabla de métodos del objeto (su palabra 0)."""
+
     dst: Operand
     obj: Operand
     line: str = ""

@@ -1,4 +1,4 @@
-"""Operandos: variables, temporales y constantes del TAC."""
+"""`Operand`: una variable, temporal o constante, con su tipo."""
 
 from __future__ import annotations
 
@@ -9,13 +9,14 @@ from asm.ir.types import UNKNOWN, Ty
 
 @dataclass
 class Operand:
-    """Un valor del TAC: variable, temporal o constante.
+    """Un valor del TAC.
 
-    text:  tal cual en el TAC ("x", "x_1", "$t3", "5", "2.5", '"hola"', "true")
-    kind:  'var' | 'temp' | 'const'
-    ty:    tipo estático
-    value: para 'const': int | float | bool | str (sin comillas) | None (null)
-    size:  bytes que ocupa en memoria (1 si es un boolean con casa de 1 byte)
+    text:  el TAC tal cual ("x", "x_1", "$t3", "5", "2.5", '"hola"', "true")
+    kind:  'var' (tiene casa en memoria), 'temp' (muere tras su último uso)
+           o 'const' (no tiene casa: el valor va dentro de la instrucción)
+    ty:    tipo
+    value: solo en 'const': int | float | bool | str (sin comillas) | None (null)
+    size:  bytes que ocupa en memoria (1 si es un boolean)
     """
 
     text: str
@@ -38,7 +39,7 @@ class Operand:
 
     @property
     def key(self) -> str:
-        """Identidad del valor en el asignador de registros."""
+        """Cómo lo reconoce el asignador de registros: por su texto."""
         return self.text
 
     def __repr__(self) -> str:

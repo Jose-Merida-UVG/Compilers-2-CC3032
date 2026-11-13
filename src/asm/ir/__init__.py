@@ -1,13 +1,16 @@
-"""IR tipado del Proyecto 3: el TAC (texto) convertido en objetos.
+"""IR del Proyecto 3: el TAC convertido en objetos.
 
-`tac_parser.parse_tac` produce esto; los selectores de instrucciones
-(`sel_*.py`) trabajan únicamente con estas clases y nunca vuelven a leer
-texto.
+`tac_parser` lee el TAC y la tabla de símbolos y produce esto; los `sel_*.py`
+solo trabajan con estas clases.
 
-Cada instrucción guarda en `line` el texto TAC del que salió (se emite como
-comentario en el `.s`) y expone `reads()` / `writes()`: los operandos que
-lee y escribe, que el asignador de registros usa para calcular el siguiente
-uso de cada valor."""
+    Ty        tipo de un valor
+    Operand   un valor (var, temp o const) con su Ty
+    Instr     una línea del TAC; sus campos son Operands
+
+    $t1 = b * 2   →   Binary(dst=$t1, a=b, op="*", b=2)
+
+Se importa desde aquí: `from asm.ir import Binary, Operand`.
+"""
 
 from __future__ import annotations
 
