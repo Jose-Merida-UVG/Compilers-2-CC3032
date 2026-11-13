@@ -161,18 +161,44 @@ driver falla con `falta el selector sel_X`. El driver antepone un `flush` a
 | `sel_control.py` | `Goto`, `CondJump` |
 | `sel_arrays.py` | `NewArray`, `Len`, `IndexLoad`, `IndexStore` |
 | `sel_calls.py` | `Call`, `Return` |
-| `sel_objects.py` | `New`, `FieldLoad`, `FieldStore`, `VTableLoad`, `CallVirt`, y `emit_vtables` *(pendiente)* |
-| `sel_try.py` | `Try`, `EndTry`, `Catch` *(pendiente)* |
-| `runtime_exc.py` | pila de manejadores, `rt_throw_index`, `rt_throw` *(pendiente)* |
-| `peephole.py` | `optimize(lines)`: mirilla sobre el MIPS *(pendiente, opcional)* |
-| `activation.py` | `build_activation(program, frames)`: datos del IDE *(pendiente, opcional)* |
+| `sel_objects.py` | `New`, `FieldLoad`, `FieldStore`, `VTableLoad`, `CallVirt`, y `emit_vtables`; verifican `null` antes de usar un objeto |
+| `sel_try.py` | `Try`, `EndTry`, `Catch` |
+| `runtime_exc.py` | pila de manejadores, `rt_throw`, `rt_throw_index`, `rt_throw_null` |
+| `peephole.py` | `optimize(lines)`: mirilla sobre el MIPS ya generado |
+| `activation.py` | `build_activation(program, frames)`: registros de activación y árbol de llamadas para el IDE |
 
-El driver importa con respaldo los módulos que faltan (clase vacía), así que el
-resto compila; un programa que use una instrucción sin selector falla con el
-mensaje de arriba.
+El driver importa con respaldo los módulos que faltan (clase vacía); un programa
+que use una instrucción sin selector falla con el mensaje de arriba.
+
+### Excepciones
+
+`try L` apila `[dirección de L][$sp][$fp]` en una pila de manejadores en `.data`
+(`rt_try_push`); `endtry` la desapila. `rt_throw` (mensaje en `$a0`) restaura
+`$sp` y `$fp` del manejador de arriba y salta a `L`, donde `catch e` copia el
+mensaje a `e`. Sin manejador imprime `Excepcion no capturada: <mensaje>` y termina
+con código 1. Lanzan: el índice fuera de rango (`indice fuera de rango`) y el
+acceso a un campo o método de `null` (`referencia nula`). No hay que restaurar
+registros al desenrollar porque todo se guarda a su casa antes de cada llamada.
+
+En un programa que usa `try`, `TrySel._dispatch` guarda cada resultado a su casa al
+terminar la instrucción: si algo lanza a mitad de un bloque, el manejador (que
+empieza con los registros vacíos) lee valores al día de memoria.
+
+### Mirilla y datos del IDE
+
+`peephole.optimize` quita `move $r, $r`, el `j L` que va justo antes de `L:` y el
+`lw` que recarga lo que acaba de guardar el `sw`; devuelve cuántas veces aplicó
+cada una (el IDE lo muestra). `activation.build_activation` arma los marcos
+(`FrameInfo.slots()`) y el árbol de llamadas desplegado desde `__main`, con las
+llamadas recursivas y virtuales marcadas.
 
 ## 7. Pruebas
 
 `src/tests/asm/<categoría>/`: casos `.cps` con su salida esperada `.out`, un
 simulador mínimo (`support/minisim.py`) y pruebas del parser, de los marcos y de
-`getReg` (`registros/`). `make test` los corre junto al resto.
+`getReg` (`registros/`). `make test` los corre junto al resto. Las carpetas
+`clases/`, `herencia/` y `try_catch/` cubren los objetos y las excepciones;
+`test_asm_excepciones.py` las excepciones sin manejador, `test_asm_peephole.py` la
+mirilla (cada regla y que optimizar no cambie la salida) y `test_asm_activation.py`
+los datos del IDE. Si hay `Mars4_5.jar` (`MARS_JAR` o `src/tools/`) los mismos
+casos corren también en MARS real.
