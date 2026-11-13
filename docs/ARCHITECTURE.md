@@ -7,12 +7,13 @@ su propio documento; este solo muestra cómo encajan.
 |---|---|
 | [`semantic.md`](semantic.md) | Proyecto 1: sistema de tipos, tabla de símbolos, checker, reglas, errores y pruebas |
 | [`tac.md`](tac.md) | Proyecto 2: lenguaje intermedio (TAC), reciclaje de temporales, layout de memoria, generador y pruebas |
+| [`mips.md`](mips.md) | Proyecto 3: código objeto MIPS (IR, marcos, asignador de registros, selectores y runtime) |
 | [`enunciados/`](enunciados/) | Texto de los enunciados: definición del lenguaje y requisitos del P1 |
 
 ## Pipeline
 
 El compilador se construye por fases acumulativas (Aho et al., 2006): léxico →
-sintáctico → semántico → código intermedio (→ futuro: código objeto MIPS). Parte
+sintáctico → semántico → código intermedio → código objeto MIPS. Parte
 del analizador léxico/sintáctico de un laboratorio previo, hecho con ANTLR4.
 
 ```
@@ -33,6 +34,11 @@ errores[]  +  árbol de ámbitos  +  anotaciones
    │  semantic/layout.py  ◄── picos de temporales ───┘
    ▼        tamaños, offsets, direcciones, registros de activación
 errores[] + TAC (o None) + tabla de símbolos completa
+   │  si sigue sin haber errores
+   ▼
+   │  generate_asm (src/asm/)     TAC + tabla de símbolos → MIPS
+   ▼
+errores[] + TAC + MIPS (o None)
 ```
 
 `src/compiler.py` orquesta las etapas y es el único lugar que conoce el pipeline
@@ -62,10 +68,11 @@ divergir.
 | `src/semantic/checker.py` | `SemanticChecker`: el recorrido y todas las reglas; anota cada nodo para el generador. |
 | `src/semantic/layout.py` | Tamaños, offsets, direcciones, registros de activación y layout de clases. |
 | `src/tac/` | Generación de código intermedio: `generator.py`, `gen_core.py`, `gen_control.py`, `gen_functions.py`, `gen_classes.py`, `emitter.py`, `instructions.py`. |
+| `src/asm/` | Generación de MIPS: `ir/` (tipos, operandos e instrucciones), `tac_parser.py`, `frames.py`, `regalloc.py`, `emitter.py`, `sel_*.py` (un selector por instrucción), `runtime.py` y `generator.py` (el driver). Ver [`mips.md`](mips.md). |
 | `src/compiler.py` | Pipeline compartido. |
 | `src/server.py` + `frontend/` | IDE: endpoint `/api/run` y paneles de errores, árbol, tabla de símbolos y TAC. |
 | `src/tests/` | Pruebas: `semantic/<categoría>/` (P1) y `tac/<área>/` (P2). |
-| `workspace/` | Directorio de trabajo del IDE; `input/comp-tac/` tiene los demos del P2. |
+| `workspace/` | Directorio de trabajo del IDE; `input/comp-mips/` tiene los demos del P2 y del P3. |
 
 ## Herramientas
 

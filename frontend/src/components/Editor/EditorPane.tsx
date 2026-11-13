@@ -25,11 +25,14 @@ interface Props {
   onChangeContent: (p: string, c: string) => void;
   onSave: (p: string) => void;
   onRunFile?: (p: string) => void;
+  onExecFile?: (p: string) => void;
+  /** Hay una ejecución en curso. */
+  executing?: boolean;
   location?: EditorLocation | null;
 }
 
 export default function EditorPane({
-  tabs, activeTab, focused, canMove, moveLabel, style, onFocus, onMoveTab, onSelectTab, onCloseTab, onChangeContent, onSave, onRunFile, location,
+  tabs, activeTab, focused, canMove, moveLabel, style, onFocus, onMoveTab, onSelectTab, onCloseTab, onChangeContent, onSave, onRunFile, onExecFile, executing, location,
 }: Props) {
   const active = tabs.find((t) => t.path === activeTab) ?? null;
   const isRunnable = !!onRunFile;
@@ -134,6 +137,16 @@ export default function EditorPane({
                 ▶ Compilar
               </button>
             )}
+            {isRunnable && onExecFile && (
+              <button
+                className="toolbar-pill toolbar-pill--exec"
+                title="Compila y ejecuta el programa en MARS; la salida aparece en OUTPUT"
+                disabled={executing}
+                onClick={() => onExecFile(activeTab!)}
+              >
+                {executing ? "⏳ Ejecutando…" : "▶ Ejecutar"}
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -201,6 +214,7 @@ function Welcome() {
       <p className="editor-welcome__sub">Lexical, Syntax &amp; Semantic Analysis · Intermediate Code (TAC) · MIPS Assembly</p>
       <div className="editor-welcome__hints">
         <Hint keys={["Ctrl", "S"]} label="Force save (auto-saves after 200ms)" />
+        <Hint keys={["▶ Ejecutar"]} label="Compila y ejecuta el programa en MARS; lo que imprime sale en el panel OUTPUT" />
         <Hint keys={["▶ Compilar"]} label="Analiza el archivo .cps: errores, árbol sintáctico, tabla de símbolos, TAC, ensamblador MIPS y registros de activación" />
       </div>
     </div>

@@ -14,7 +14,7 @@ import pytest
 from compiler import analyze_file
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
-_DEMOS = os.path.join(_HERE, "..", "..", "..", "workspace", "input", "comp-tac")
+_DEMOS = os.path.join(_HERE, "..", "..", "..", "workspace", "input", "comp-mips")
 
 # área -> (fila de la rúbrica, puntos, patrones en el fuente, texto en el TAC)
 RUBRICA = {
