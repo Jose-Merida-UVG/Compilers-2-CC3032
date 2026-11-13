@@ -40,6 +40,7 @@ AREAS = [
     "recursividad",
     "clases",
     "herencia",
+    "try_catch",
 ]
 
 

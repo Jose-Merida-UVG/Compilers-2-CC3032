@@ -9,11 +9,16 @@ palabra por slot con la dirección del método.
 from __future__ import annotations
 
 from asm.emitter import AsmEmitter, mangle_func, mangle_vtable
-from asm.ir import Call, CallVirt, ClassUnit, FieldLoad, FieldStore, New, VTableLoad
+from asm.ir import Call, CallVirt, ClassUnit, FieldLoad, FieldStore, New, Operand, VTableLoad
 from asm.sel_ops import as_float
 
 
 class ObjectSel:
+    def _null_check(self, reg: str, obj: Operand) -> None:
+        """Lanza si el objeto es `null`. `this` nunca lo es."""
+        if obj.text != "this":
+            self.a.ins(f"beq   {reg}, $zero, rt_throw_null")
+
     def sel_New(self, ins: New) -> None:
         regs, asm = self.regs, self.a
         asm.ins(f"li    $a0, {ins.size}")
@@ -26,6 +31,7 @@ class ObjectSel:
     def sel_FieldLoad(self, ins: FieldLoad) -> None:
         regs, asm = self.regs, self.a
         ro = regs.use(ins.obj)
+        self._null_check(ro, ins.obj)
         rd = regs.def_(ins.dst)
         if ins.dst.is_float:
             load = "lwc1 "
@@ -36,6 +42,7 @@ class ObjectSel:
     def sel_FieldStore(self, ins: FieldStore) -> None:
         regs, asm = self.regs, self.a
         ro = regs.use(ins.obj)
+        self._null_check(ro, ins.obj)
         if ins.ty.is_float or ins.src.is_float:
             rs = as_float(self, ins.src)  # un entero donde se espera float se convierte
             store = "swc1 "
@@ -47,6 +54,7 @@ class ObjectSel:
     def sel_VTableLoad(self, ins: VTableLoad) -> None:
         regs, asm = self.regs, self.a
         ro = regs.use(ins.obj)
+        self._null_check(ro, ins.obj)
         rd = regs.def_(ins.dst)
         asm.ins(f"lw    {rd}, 0({ro})")  # la tabla de métodos es la palabra 0
 
