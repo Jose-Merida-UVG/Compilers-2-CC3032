@@ -52,13 +52,23 @@ class FrameInfo:
         self.locals_size = int(unit.frame.get("locals_size", 0))
         self.temps = int(unit.frame.get("temps", 0))
         self.temps_size = WORD * self.temps
-        self.alloc = self.locals_size + self.temps_size  # Bytes bajo $fp
+        # Valores previos de las variables capturadas, para restaurarlos al salir
+        self.caps_size = WORD * len(unit.captured)
+        self.alloc = self.locals_size + self.temps_size + self.caps_size  # Bytes bajo $fp
         self.fn_label = mangle_func(unit.label)
         self.ret_label = mangle_ret(unit.label)
 
     def temp_home(self, n: int) -> Home:
         """Casa del temporal `$tN`: justo debajo de las locales."""
         return Home("fp", -(self.locals_size + WORD * n), WORD)
+
+    def cap_home(self, j: int) -> Home:
+        """Casa donde se guarda el valor previo de la j-ésima variable capturada."""
+        return Home("fp", -(self.locals_size + self.temps_size + WORD * (j + 1)), WORD)
+
+    def _capture_addr(self, name: str) -> int:
+        """Offset en `$gp` de la casa fija de una variable capturada."""
+        return _parse_address(self.unit.symbols[name]["address"])[1]
 
     def param_home(self, index: int) -> Home:
         """Casa del parámetro número `index`."""
@@ -96,6 +106,11 @@ class FrameInfo:
         asm.ins("move  $fp, $sp")
         if self.alloc:
             asm.ins(f"addiu $sp, $sp, -{self.alloc}")
+        # La casa fija es una sola: una llamada recursiva pisaría el valor de la
+        # activación anterior. Se guarda aquí y se restaura en el epílogo.
+        for j, name in enumerate(self.unit.captured):
+            asm.ins(f"lw    $v1, {self._capture_addr(name)}($gp)")
+            asm.ins(f"sw    $v1, {self.cap_home(j).mem()}")
         for i, name in enumerate(self.unit.params):
             sym = self.unit.symbols.get(name)
             if sym is not None and sym.get("static"):
@@ -107,6 +122,9 @@ class FrameInfo:
     def emit_epilogue(self, asm: AsmEmitter) -> None:
         """Etiqueta de salida de los `return` y deshacer el prólogo."""
         asm.label(self.ret_label)
+        for j, name in enumerate(self.unit.captured):
+            asm.ins(f"lw    $v1, {self.cap_home(j).mem()}")
+            asm.ins(f"sw    $v1, {self._capture_addr(name)}($gp)")
         asm.ins("move  $sp, $fp")
         asm.ins("lw    $ra, 4($sp)")
         asm.ins("lw    $fp, 0($sp)")
@@ -135,6 +153,8 @@ class FrameInfo:
                 add(name, "local", Home(base, off, int(sym.get("size") or WORD)))
         for n in range(1, self.temps + 1):
             add(f"$t{n}", "temp", self.temp_home(n))
+        for j, name in enumerate(self.unit.captured):
+            add(f"{name} (previa)", "saved", self.cap_home(j))
         slots.sort(key=lambda s: -s["offset"])
         return slots
 

@@ -694,6 +694,7 @@ def _parse_function(label: str, params: list[str], body_lines: list[str],
         label=label, params=params, body=body, frame=frame,
         symbols=up.symbols, param_types=up.param_types,
         owner_class=up.owner if "." in label else None,
+        captured=sorted(n for (owner, n) in info.captured if owner == label),
     )
 
 

@@ -1,5 +1,8 @@
 # MIPS backend map
 
+The full guide (process, examples per construct, peephole, rubric) is
+`workspace/MIPS.md`. This file is the file-by-file reading order.
+
 Read this first, then open the files in the order below. Each file also has a
 short docstring at the top.
 
@@ -10,7 +13,7 @@ TAC (list of strings)  ┐
 symbol table (JSON)    ┘──▶ generate_asm() ──▶ AsmResult
                                                  .lines          raw MIPS (peephole runs later)
                                                  .activation     frames + call tree, for the IDE
-                                                 .regalloc_trace getReg decisions, for the IDE
+                                                 .regalloc_trace getReg decisions (not shown in the IDE yet)
 ```
 
 Both inputs come from Project 2 and are only produced when the program has no
@@ -110,8 +113,10 @@ The stress programs live in `src/tests/asm/estres_casos.py`; each is
 
 ## Known limits
 
-- Nested functions that capture a variable of a function that calls itself
-  recursively share one slot in `$gp` and overwrite each other.
+- A captured variable (used by a nested function) lives in one fixed `$gp` slot.
+  The owner saves the previous value in its prologue and restores it in its
+  epilogue, so recursion works; an exception that unwinds through a recursive
+  owner skips that epilogue and leaves the slot stale.
 - Integer division by zero gives an undefined value (MARS does not trap).
 - The language has no `throw`; exceptions come only from out-of-range indexes
   and `null` access.

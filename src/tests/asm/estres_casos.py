@@ -482,3 +482,76 @@ foreach (p in ps) { s = s + p.n; } print(s);''', L("abc"))
 add("estres","booleanos_como_valores_y_en_arreglos_de_objetos",'''
 class F { var on: boolean = false; function flip() { this.on = !this.on; } }
 let f = new F(); f.flip(); print(f.on); f.flip(); print(f.on); f.flip(); let b: boolean = f.on && true; print(b);''', L("true","false","true"))
+
+# ---------------- closures (variables capturadas por funciones anidadas)
+add("closures","contador_modificado_por_la_interna",'''
+function cuenta(): integer {
+  let c: integer = 10;
+  function inc(): integer { c = c + 1; return c; }
+  inc(); inc(); inc();
+  return c;
+}
+print(cuenta()); print(cuenta());''', L(13,13))
+add("closures","parametro_capturado_con_recursion",'''
+function f(n: integer): integer {
+  function dob(): integer { return n * 2; }
+  if (n == 0) { return 0; }
+  let r: integer = f(n - 1);
+  return r + dob();
+}
+print(f(4));''', L(20))
+add("closures","dos_niveles_de_anidamiento",'''
+function a(x: integer): integer {
+  let y: integer = 100;
+  function b(): integer {
+    function c(): integer { return x + y; }
+    y = y + 1;
+    return c();
+  }
+  return b() + b();
+}
+print(a(5));''', L(106 + 107))
+add("closures","la_interna_llama_al_contenedor",'''
+function ext(n: integer): integer {
+  let x: integer = n * 10;
+  function g(): integer { if (n == 0) { return x; } return ext(n - 1) + x; }
+  return g();
+}
+print(ext(3));''', L(60))
+add("closures","booleano_y_float_capturados_en_recursion",'''
+function f(n: integer): float {
+  let on: boolean = n > 1; let k: float = n * 1.5;
+  function pick(): float { if (on) { return k; } return 0.0; }
+  if (n == 0) { return pick(); }
+  let r: float = f(n - 1);
+  return r + pick();
+}
+print(f(3));''', L(3.0 + 4.5))
+add("closures","fibonacci_con_ayudante_que_lee_el_parametro",'''
+function fib(n: integer): integer {
+  function es_base(): boolean { return n < 2; }
+  if (es_base()) { return n; }
+  return fib(n - 1) + fib(n - 2);
+}
+print(fib(15));''', L(610))
+add("closures","dos_funciones_distintas_con_capturas",'''
+function a(): integer { let v: integer = 1; function g(): integer { v = v + 1; return v; } g(); return g(); }
+function b(): integer { let v: integer = 50; function g(): integer { v = v + 5; return v; } return g(); }
+print(a()); print(b()); print(a());''', L(3,55,3))
+add("closures","valor_se_restaura_tras_la_llamada_recursiva",'''
+function f(n: integer): integer {
+  let v: integer = n;
+  function ver(): integer { return v; }
+  if (n > 0) { f(n - 1); }
+  return ver();
+}
+print(f(5));''', L(5))
+add("closures","anidada_con_el_nombre_de_una_global",'''
+function g(): integer { return 1; }
+function f(): integer { function g(): integer { return 2; } return g(); }
+print(g()); print(f()); print(g());''', L(1,2,1))
+add("closures","tres_anidadas_con_el_mismo_nombre",'''
+function a(): integer { function h(): integer { return 1; } return h(); }
+function b(): integer { function h(): integer { return 20; } return h(); }
+function c(): integer { function h(): integer { return 300; } return h(); }
+print(a() + b() + c());''', L(321))

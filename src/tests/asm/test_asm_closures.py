@@ -2,8 +2,8 @@
 
 Las variables capturadas (locales o parámetros de la función externa) pasan a
 una casa fija del área global (`gp+N`); las que nadie anidado usa siguen en el
-marco, así que una función recursiva con un ayudante anidado que no captura
-nada conserva sus variables en la pila.
+marco. Como la casa es una sola, la función externa guarda el valor previo en su
+prólogo y lo restaura en su epílogo, para que su propia recursión no lo pise.
 """
 
 from __future__ import annotations
@@ -86,3 +86,25 @@ print(fact(5));
 """
     r = _compile(src)
     assert Sim(generate_asm(r["tac"], r["symbol_table_json"]).lines).run() == "120\n"
+
+
+def test_owner_saves_and_restores_the_captured_slot_so_its_recursion_does_not_clobber_it():
+    r = _compile(CLOSURE)
+    lines = [l.strip() for l in generate_asm(r["tac"], r["symbol_table_json"]).lines]
+    start = lines.index("f_externa:")
+    end = lines.index("f_externa__ret:")
+    body = lines[start:end]
+    assert any(l.startswith("lw    $v1,") and l.endswith("($gp)") for l in body)  # Guarda el valor previo
+    ret = lines[end:end + 12]
+    assert any(l.startswith("sw    $v1,") and l.endswith("($gp)") for l in ret)  # Lo restaura al salir
+
+
+def test_nested_functions_with_the_same_name_get_distinct_labels():
+    r = _compile(
+        "function a(): integer { function g(): integer { return 1; } return g(); }\n"
+        "function b(): integer { function g(): integer { return 2; } return g(); }\n"
+        "print(a() + b());"
+    )
+    labels = [l for l in r["tac"] if l.startswith("func ")]
+    assert len(labels) == len(set(labels))
+    assert "func g():" in labels and "func g_1():" in labels

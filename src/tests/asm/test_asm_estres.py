@@ -16,7 +16,6 @@ CONOCIDOS = {
     "mutua": "el lenguaje no permite usar una función antes de declararla",
     "division_por_cero_observar": "MARS no lanza excepción; el resultado no está definido",
     "arreglo_mixto_de_subclases": "el checker del P1 exige elementos del mismo tipo exacto",
-    "closure_con_recursion_del_contenedor_conocido": "la variable capturada vive en una casa fija de $gp",
 }
 
 

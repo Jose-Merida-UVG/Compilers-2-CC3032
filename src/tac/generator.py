@@ -28,6 +28,7 @@ class TACGenerator(
         self._names: dict[int, str] = {}
         self._used_names: dict[int, set[str]] = {}
         self._reserved_names: dict[int, set[str]] = {}
+        self._function_labels: set[str] = set()
         self._index_scopes(checker.symbols.global_scope)
 
     def expr(self, ctx) -> str | None:
@@ -65,6 +66,8 @@ class TACGenerator(
         for symbol in scope.symbols.values():
             self._symbol_scopes[id(symbol)] = scope
             reserved.add(symbol.name)
+            if symbol.kind is SymbolKind.FUNCTION and scope.parent is None:
+                self._function_labels.add(symbol.name)
 
             # Los parámetros conservan su nombre aunque un bloque
             # interno declare otra variable con el mismo nombre.
@@ -87,6 +90,14 @@ class TACGenerator(
         if symbol.kind is SymbolKind.FUNCTION:
             if scope.kind is ScopeKind.CLASS:
                 name = f"{scope.owner}.{name}"
+            elif scope.parent is not None:
+                # Dos funciones anidadas en funciones distintas pueden llamarse
+                # igual; el TAC necesita una etiqueta única por función
+                suffix = 0
+                while name in self._function_labels:
+                    suffix += 1
+                    name = f"{symbol.name}_{suffix}"
+                self._function_labels.add(name)
         elif symbol.kind is SymbolKind.CLASS or scope.kind is ScopeKind.CLASS:
             pass
         else:

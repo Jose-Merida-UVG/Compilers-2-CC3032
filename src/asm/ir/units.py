@@ -19,6 +19,7 @@ class FuncUnit:
     symbols: dict = field(default_factory=dict)
     owner_class: Optional[str] = None
     param_types: dict = field(default_factory=dict)  # Parámetro -> Ty
+    captured: list = field(default_factory=list)  # Variables propias que usa una función anidada
 
 
 @dataclass

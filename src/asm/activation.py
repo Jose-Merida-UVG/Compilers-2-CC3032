@@ -50,7 +50,7 @@ def build_activation(program: Program, frames: dict[str, FrameInfo]) -> dict:
         "frames": {
             label: {
                 "label": label,
-                "total_size": int(fr.unit.frame.get("total_size", 0)),
+                "total_size": int(fr.unit.frame.get("total_size", 0)) + fr.caps_size,
                 "slots": fr.slots(),
             }
             for label, fr in frames.items()
