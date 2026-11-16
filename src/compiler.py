@@ -117,7 +117,7 @@ def analyze(input_stream: InputStream) -> dict:
     symbol_table_json = None
     tac = None
     tac_stats = None
-    asm = asm_raw = asm_stats = activation = None
+    asm = asm_raw = asm_stats = activation = regalloc = None
     if not errors:
         checker = SemanticChecker()
         semantic_errors = checker.check(tree)
@@ -158,6 +158,7 @@ def analyze(input_stream: InputStream) -> dict:
             asm = optimized
             asm_stats = stats
             activation = generated.activation
+            regalloc = generated.regalloc_steps
         except Exception as exc:
             errors.append(f"Error interno al generar el ensamblador: {exc}")
             tac = tac_stats = None
@@ -191,6 +192,7 @@ def analyze(input_stream: InputStream) -> dict:
         "asm_raw": asm_raw,
         "asm_stats": asm_stats,
         "activation": activation,
+        "regalloc": regalloc,
     }
 
 

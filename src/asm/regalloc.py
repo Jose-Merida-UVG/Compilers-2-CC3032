@@ -336,7 +336,15 @@ class RegAlloc:
             op = self.reg_op[reg]
             if self.next_use(op.key) != DEAD:
                 self._store(reg, op)
+                self._record(op.key, reg, "flush")
         self.dirty.clear()
+
+    def snapshot(self) -> dict:
+        """Estado de los descriptores: qué valor tiene cada registro y cuáles están sucios."""
+        return {
+            "regs": {reg: op.key for reg, op in sorted(self.reg_op.items())},
+            "dirty": sorted(self.dirty),
+        }
 
     def invalidate(self) -> None:
         """Olvida todos los registros (tras una etiqueta o una llamada)."""

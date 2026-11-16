@@ -83,6 +83,7 @@ def test_server_devuelve_asm_stats_y_activacion(cliente):
     assert r["asm"] and r["asmRaw"]
     assert r["asmStats"]["instructions"] > 0
     assert isinstance(r["activation"], dict)
+    assert r["regalloc"] and {"func", "line", "decisions", "regs", "dirty"} <= set(r["regalloc"][0])
 
 
 def test_server_guarda_el_s_con_el_nombre_que_espera_el_ide(cliente):

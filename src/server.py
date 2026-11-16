@@ -228,4 +228,5 @@ def run_file(body: RunBody):
         "asmRaw": result["asm_raw"],
         "asmStats": result["asm_stats"],
         "activation": result["activation"],
+        "regalloc": result["regalloc"],
     }

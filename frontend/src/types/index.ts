@@ -138,6 +138,18 @@ export interface ActivationData {
   tree: ActivationTreeNode;
 }
 
+/** Una instrucción TAC y lo que decidió el asignador de registros al traducirla. */
+export interface RegallocStep {
+  func: string;
+  line: string;
+  /** Cada valor pedido: `reason` es "carga", "en registro", "libre", "reuso", "mismo registro", "spill" o "flush". */
+  decisions: { op: string; reg: string; reason: string }[];
+  /** Descriptor de registros al terminar la instrucción: registro -> valor. */
+  regs: Record<string, string>;
+  /** Registros con un valor más nuevo que su casa en memoria. */
+  dirty: string[];
+}
+
 export interface RunOutput {
   /** Terminal-ready lines: errors, then the status message. */
   lines: string[];
@@ -161,6 +173,8 @@ export interface RunOutput {
   asmStats?: AsmStats | null;
   /** Marcos y árbol de activación. */
   activation?: ActivationData | null;
+  /** Decisiones del asignador de registros, una entrada por instrucción TAC. */
+  regalloc?: RegallocStep[] | null;
 }
 
 /** Resultado de ejecutar el programa en MARS (POST /api/exec). */
@@ -216,6 +230,8 @@ export interface EditorTab {
   asmData?: AsmData;
   /** Tras Run: registros y árbol de activación (ActivationViewer). */
   activationData?: ActivationData;
+  /** Tras Run: decisiones del asignador de registros (RegallocViewer). */
+  regallocData?: RegallocStep[];
 }
 
 /** Error del análisis y su ubicación en el archivo fuente. */

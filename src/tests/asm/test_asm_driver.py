@@ -176,3 +176,13 @@ let m = x > y ? x : y;
 print(m);
 """)
     assert out.split() == ["9"]
+
+
+def test_regalloc_steps_record_decisions_and_register_state_per_tac_line():
+    res = _asm("let a: integer = 1; let b = a + 2; print(b);", strict=False)
+    steps = [s for s in res.regalloc_steps if s["func"] == "__main"]
+    assert [s["line"] for s in steps][0] == "a = 1"
+    first = steps[0]
+    assert first["decisions"] == [{"op": "a", "reg": "$t0", "reason": "libre"}]
+    assert first["regs"] == {"$t0": "a"} and first["dirty"] == ["$t0"]
+    assert all(set(s) == {"func", "line", "decisions", "regs", "dirty"} for s in res.regalloc_steps)

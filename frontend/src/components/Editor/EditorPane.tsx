@@ -7,6 +7,7 @@ import SymbolTableViewer from "../SymbolTableViewer/SymbolTableViewer";
 import TacViewer from "../TacViewer/TacViewer";
 import AsmViewer from "../AsmViewer/AsmViewer";
 import ActivationViewer from "../ActivationViewer/ActivationViewer";
+import RegallocViewer from "../RegallocViewer/RegallocViewer";
 import MarkdownViewer from "../MarkdownViewer/MarkdownViewer";
 import { useEffect, useRef } from "react";
 import "./Editor.css";
@@ -41,6 +42,7 @@ export default function EditorPane({
   const isTacTab = !!(active?.tacData);
   const isAsmTab = !!(active?.asmData);
   const isActivationTab = !!(active?.activationData);
+  const isRegallocTab = !!(active?.regallocData);
   const isMarkdown = activeTab?.endsWith(".md") ?? false;
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
   const tabBarRef = useRef<HTMLDivElement>(null);
@@ -67,7 +69,7 @@ export default function EditorPane({
   };
 
   useEffect(() => {
-    if (isTreeTab || isSymbolTableTab || isTacTab || isAsmTab || isActivationTab || isMarkdown) return;
+    if (isTreeTab || isSymbolTableTab || isTacTab || isAsmTab || isActivationTab || isRegallocTab || isMarkdown) return;
 
     const frame = requestAnimationFrame(() => {
       if (editorRef.current) {
@@ -76,7 +78,7 @@ export default function EditorPane({
     });
 
     return () => cancelAnimationFrame(frame);
-  }, [location, activeTab, isTreeTab, isSymbolTableTab, isTacTab, isAsmTab, isActivationTab, isMarkdown]);
+  }, [location, activeTab, isTreeTab, isSymbolTableTab, isTacTab, isAsmTab, isActivationTab, isRegallocTab, isMarkdown]);
 
   const handleBeforeMount = (monaco: typeof Monaco) => {
     registerCompiscriptLanguage(monaco);
@@ -164,6 +166,8 @@ export default function EditorPane({
             <AsmViewer data={active.asmData!} />
           ) : isActivationTab ? (
             <ActivationViewer data={active.activationData!} />
+          ) : isRegallocTab ? (
+            <RegallocViewer data={active.regallocData!} />
           ) : isMarkdown ? (
             <MarkdownViewer content={active.content} />
           ) : (

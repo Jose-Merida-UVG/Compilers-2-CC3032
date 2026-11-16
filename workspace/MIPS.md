@@ -111,7 +111,7 @@ puntero.
 | `lines` | El MIPS crudo, sin mirilla | pestaña **asm** (botón *Sin mirilla*) |
 | (después de la mirilla) | El MIPS final | pestaña **asm** |
 | `activation` | Marcos de cada función y árbol de llamadas | pestaña **activación** |
-| `regalloc_trace` | Cada decisión de `getReg`: instrucción, valor, registro, razón | Hoy no se muestra en el IDE; está en `generate_asm(...).regalloc_trace` |
+| `regalloc_steps` | Por cada instrucción TAC: las decisiones de `getReg` (valor, registro, razón) y el estado de los registros al terminar | pestaña **registros** |
 
 El `.s` tiene `.data` primero (globales, strings, floats, tablas de métodos,
 variables del runtime) y `.text` después. Cada instrucción del TAC deja un
@@ -127,6 +127,17 @@ abajo como "esto del TAC se tradujo a esto":
 
 El resumen de la mirilla (arriba del `.s`) dice cuántas instrucciones había
 antes y después y cuántas veces se aplicó cada regla.
+
+La pestaña **registros** es la tabla del asignador: una fila por instrucción TAC
+con (1) cada valor que pidió, el registro que recibió y por qué (`carga`,
+`en registro`, `libre`, `reuso`, `mismo registro`, `spill`, `flush`) y (2) qué
+valor tiene cada registro al terminar, con `*` en los sucios (más nuevos que su
+casa en memoria). Se elige la función arriba a la derecha.
+
+La pestaña **asm** tiene *Comentarios TAC* y *Solo código*: con *Solo código*
+desaparecen todos los comentarios y líneas en blanco, y lo que se copia o se
+guarda con *Copiar* / *Guardar .s* es únicamente el código, listo para correr en
+MARS. Sin ese botón el `.s` también corre, pero lleva los `# TAC:`.
 
 El **registro de activación** (`activation.frames`) lista, por función, sus
 casillas de direcciones altas a bajas: `param`, `saved` (`$ra`, `$fp`),
@@ -556,7 +567,7 @@ optimizar no cambie lo que imprime ningún programa válido.
 
 | Criterio (puntos) | Qué mirar | Dónde |
 |-------------------|-----------|-------|
-| Selección de registros (4) | `getReg`, descriptores, siguiente uso, derrames | `regalloc.py`; `regalloc_trace`; demo `14-registros-valido.cps` |
+| Selección de registros (4) | `getReg`, descriptores, siguiente uso, derrames | `regalloc.py`; pestaña **registros**; demo `14-registros-valido.cps` |
 | Registros y árbol de activación (5) | Marcos con `param`/`saved`/`local`/`temp` y el árbol de llamadas | `frames.py`, `activation.py`; pestaña **activación**; demo `15-activacion-valido.cps` |
 | Declaración y asignación (1) | `li`/`la`/`l.s` + `sw` a la casa | `sel_core.py`; demo `01` |
 | Aritmética (1) | `addu`, `mul`, `div`, `add.s`, conversión int→float | `sel_ops.py`; demo `02` |

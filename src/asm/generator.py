@@ -45,6 +45,7 @@ class AsmResult:
     lines: list[str]
     activation: dict = field(default_factory=dict)  # Marcos y árbol de llamadas
     regalloc_trace: list[dict] = field(default_factory=list)  # Decisiones de getReg
+    regalloc_steps: list[dict] = field(default_factory=list)  # Lo mismo, por instrucción TAC
 
 
 class BaseGen:
@@ -57,6 +58,7 @@ class BaseGen:
         # fallar; solo lo usan las pruebas que arman un generador incompleto
         self.strict = strict
         self.trace: list[dict] = []  # Decisiones de getReg de todas las funciones
+        self.steps: list[dict] = []  # Decisiones y estado de los registros, por instrucción
         self.frames: dict[str, FrameInfo] = {}  # Los marcos, para activation.py
         self.fr: Optional[FrameInfo] = None
         self.regs: Optional[RegAlloc] = None
@@ -106,6 +108,7 @@ class BaseGen:
         for blk, lo in zip(blocks, live_out):
             self.regs.start_block(blk, lo)
             for i, ins in enumerate(blk):
+                mark = len(self.trace)
                 self.regs.begin_instr(i)
                 a.tac_comment(ins.line)
                 if isinstance(ins, TERMINATORS):
@@ -115,9 +118,17 @@ class BaseGen:
                     self.regs.flush()
                 self._dispatch(ins)
                 self.regs.end_instr(ins)
-            if not isinstance(blk[-1], TERMINATORS):
-                # El bloque termina porque sigue una etiqueta y se cae en ella
-                self.regs.flush()
+                if i == len(blk) - 1 and not isinstance(ins, TERMINATORS):
+                    # El bloque termina porque sigue una etiqueta y se cae en ella
+                    self.regs.flush()
+                self.steps.append({
+                    "func": unit.label,
+                    "line": ins.line,
+                    "decisions": [
+                        {k: d[k] for k in ("op", "reg", "reason")} for d in self.trace[mark:]
+                    ],
+                    **self.regs.snapshot(),
+                })
 
         fr.emit_epilogue(a)
 
@@ -164,4 +175,5 @@ def generate_asm(
         lines=asm.lines(),
         activation=build_activation(program, gen.frames),
         regalloc_trace=gen.trace,
+        regalloc_steps=gen.steps,
     )

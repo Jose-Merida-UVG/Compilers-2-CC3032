@@ -13,7 +13,7 @@ TAC (list of strings)  ┐
 symbol table (JSON)    ┘──▶ generate_asm() ──▶ AsmResult
                                                  .lines          raw MIPS (peephole runs later)
                                                  .activation     frames + call tree, for the IDE
-                                                 .regalloc_trace getReg decisions (not shown in the IDE yet)
+                                                 .regalloc_steps getReg decisions + register state per TAC line (IDE "registros" tab)
 ```
 
 Both inputs come from Project 2 and are only produced when the program has no

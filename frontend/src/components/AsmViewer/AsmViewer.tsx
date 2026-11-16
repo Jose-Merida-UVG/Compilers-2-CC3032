@@ -13,6 +13,7 @@ export default function AsmViewer({ data }: Props) {
 
   const [useRaw, setUseRaw] = useState(false);
   const [showTac, setShowTac] = useState(true);
+  const [codeOnly, setCodeOnly] = useState(false);
   const [status, setStatus] = useState("");
 
   useEffect(() => {
@@ -20,7 +21,17 @@ export default function AsmViewer({ data }: Props) {
     setUseRaw(false);
   }, [data]);
 
-  const shown = useRaw && raw ? raw : lines;
+  const source = useRaw && raw ? raw : lines;
+  // Lo que se ve es lo que se copia y se guarda. "Solo código" quita todos los
+  // comentarios y las líneas en blanco: queda un .s listo para correr en MARS.
+  const shown = useMemo(() => {
+    if (codeOnly) {
+      return source
+        .map((line) => splitComment(line)[0].trimEnd())
+        .filter((line) => line.trim() !== "");
+    }
+    return showTac ? source : source.filter((line) => !isTacComment(line));
+  }, [source, showTac, codeOnly]);
   const text = useMemo(() => shown.join("\n") + "\n", [shown]);
 
   const copyAsm = async () => {
@@ -69,8 +80,17 @@ export default function AsmViewer({ data }: Props) {
             </div>
           )}
           <label className="asm-check" title="Muestra la línea del TAC de la que sale cada bloque">
-            <input type="checkbox" checked={showTac} onChange={(e) => setShowTac(e.target.checked)} />
+            <input
+              type="checkbox"
+              checked={showTac && !codeOnly}
+              disabled={codeOnly}
+              onChange={(e) => setShowTac(e.target.checked)}
+            />
             Comentarios TAC
+          </label>
+          <label className="asm-check" title="Sin comentarios ni líneas en blanco: lo que se copia o se guarda es solo el código, listo para correr en MARS">
+            <input type="checkbox" checked={codeOnly} onChange={(e) => setCodeOnly(e.target.checked)} />
+            Solo código
           </label>
           <button type="button" className="asm-btn" onClick={copyAsm}>Copiar</button>
           <button type="button" className="asm-btn" onClick={saveAsm}>Guardar .s</button>
@@ -82,14 +102,12 @@ export default function AsmViewer({ data }: Props) {
       <div className="asm-status" role="status" aria-live="polite">{status}</div>
 
       <div className="asm-viewer__body">
-        {shown.map((line, i) =>
-          !showTac && isTacComment(line) ? null : (
-            <div key={i} className={`asm-line ${lineClass(line)}`}>
-              <span className="asm-line__num">{i + 1}</span>
-              <span className="asm-line__text">{renderLine(line)}</span>
-            </div>
-          ),
-        )}
+        {shown.map((line, i) => (
+          <div key={i} className={`asm-line ${lineClass(line)}`}>
+            <span className="asm-line__num">{i + 1}</span>
+            <span className="asm-line__text">{renderLine(line)}</span>
+          </div>
+        ))}
       </div>
     </div>
   );

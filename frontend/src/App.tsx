@@ -200,7 +200,7 @@ export default function App() {
  
   const saveTab = useCallback(async (path: string) => {
     const tab = tabs.find((t) => t.path === path);
-    if (!tab || tab.treeData || tab.symbolTableData || tab.tacData || tab.asmData || tab.activationData) return; // pestañas de solo lectura
+    if (!tab || tab.treeData || tab.symbolTableData || tab.tacData || tab.asmData || tab.activationData || tab.regallocData) return; // pestañas de solo lectura
     try {
       await api.writeFile(path, tab.content);
       setTabs((prev) => prev.map((t) => t.path === path ? { ...t, isDirty: false } : t));
@@ -316,6 +316,7 @@ export default function App() {
       const savedTacPath = `output/${base}/${fileName}.tac`;
       const asmTabPath = `${inputPath}::asm`;
       const activationTabPath = `${inputPath}::activation`;
+      const regallocTabPath = `${inputPath}::regalloc`;
       const savedAsmPath = `output/${base}/${fileName}.s`;
 
       if (result.errors.length > 0 || result.tac === null) {
@@ -330,7 +331,8 @@ export default function App() {
 
         setTabs((prev) => prev.filter(
           (tab) => tab.path !== tacTabPath && tab.path !== savedTacPath
-            && tab.path !== asmTabPath && tab.path !== activationTabPath && tab.path !== savedAsmPath
+            && tab.path !== asmTabPath && tab.path !== activationTabPath && tab.path !== regallocTabPath
+            && tab.path !== savedAsmPath
         ));
         activate(inputPath, sourcePane);
       } else {
@@ -408,6 +410,23 @@ export default function App() {
           setTabs((prev) => prev.filter((tab) => tab.path !== activationTabPath));
         }
 
+        if (Array.isArray(result.regalloc) && result.regalloc.length > 0) {
+          const regallocTab: EditorTab = {
+            path: regallocTabPath,
+            label: `registros · ${base}`,
+            content: "",
+            isDirty: false,
+            regallocData: result.regalloc,
+          };
+          setTabs((prev) => {
+            const index = prev.findIndex((tab) => tab.path === regallocTabPath);
+            if (index >= 0) { const next = [...prev]; next[index] = regallocTab; return next; }
+            return [...prev, regallocTab];
+          });
+        } else {
+          setTabs((prev) => prev.filter((tab) => tab.path !== regallocTabPath));
+        }
+
         // Fuente a un lado y el resultado más reciente (ensamblador) al otro; el foco queda en la fuente
         setActiveByPane((prev) => (sourcePane === 0 ? [inputPath, resultTabPath] : [resultTabPath, inputPath]));
         setFocusedPane(sourcePane);
@@ -431,7 +450,7 @@ export default function App() {
     const path = activeByPane[pane];
     const tab = tabs.find((t) => t.path === path);
     return !!path && path.endsWith(".cps") && !tab?.treeData && !tab?.symbolTableData && !tab?.tacData
-      && !tab?.asmData && !tab?.activationData;
+      && !tab?.asmData && !tab?.activationData && !tab?.regallocData;
   };
  
   return (
