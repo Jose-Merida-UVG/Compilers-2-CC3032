@@ -16,14 +16,16 @@ class Operand:
            o 'const' (no tiene casa: el valor va dentro de la instrucción)
     ty:    tipo
     value: solo en 'const': int | float | bool | str (sin comillas) | None (null)
-    size:  bytes que ocupa en memoria (1 si es un boolean)
+
+    OJO: `value` también es `None` en las var y los temp, así que para saber si
+    algo es `null` se revisa `is_const` primero. El tamaño en memoria no vive
+    aquí: lo decide `FrameInfo.home`.
     """
 
     text: str
     kind: str
     ty: Ty = UNKNOWN
     value: object = None
-    size: int = 4
 
     @property
     def is_const(self) -> bool:

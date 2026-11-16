@@ -275,9 +275,11 @@ Cada línea del TAC es un objeto. Tres capas:
   casa), `ty`, y `value` solo para constantes (`None` en var/temp; `null` también
   es `None`, así que se revisa `is_const` primero).
 - **`Instr`** (`base.py` y los demás módulos): una clase por instrucción del TAC,
-  con operandos como campos. Cada una expone `reads()` y `writes()`, que el
-  asignador usa para calcular el siguiente uso; `_vals` descarta constantes y
-  `None`. `line` guarda el TAC original, que se emite como comentario.
+  con operandos como campos. Cada una declara en `READS` y `WRITES` los nombres de
+  los campos que lee y escribe (`READS = ("a", "b")`); la base deriva de ahí
+  `reads()` y `writes()`, que el asignador usa para calcular el siguiente uso, y
+  `non_const` descarta constantes y `None`. `line` guarda el TAC original, que se
+  emite como comentario.
 
 Ejemplo: `$t1 = b * 2` →
 `Binary(dst=$t1:temp:int, a=b:var:int, op="*", b=2:const:int, line="$t1 = b * 2")`.
@@ -290,11 +292,11 @@ sigue, y `func`/`class`/`vtable` forman las unidades `FuncUnit`, `ClassUnit` y
 |---|---|
 | `types.py` | `Ty`, `INT`, `FLOAT`, …, `array_of`, `obj_of` |
 | `operands.py` | `Operand` |
-| `base.py` | `Instr`, `_vals` |
+| `base.py` | `Instr`, `non_const` |
 | `control.py` | `Label`, `Goto`, `CondJump`, `Return`, `TERMINATORS` |
 | `values.py` | `Copy`, `Unary`, `Binary`, `Print` |
 | `arrays.py` | `NewArray`, `Len`, `IndexLoad`, `IndexStore` |
-| `objects.py` | `FieldLoad`, `FieldStore`, `New`, `VTableLoad` |
+| `objects.py` | `FieldLoad`, `FieldStore`, `New`, `VTableLoad`, `VTableSlotLoad` |
 | `calls.py` | `Call`, `CallVirt` |
 | `exceptions.py` | `Try`, `EndTry`, `Catch` |
 | `units.py` | `FuncUnit`, `ClassUnit`, `Program` |
@@ -403,7 +405,7 @@ driver falla con `falta el selector sel_X`. El driver antepone un `flush` a
 | `sel_control.py` | `Goto`, `CondJump` |
 | `sel_arrays.py` | `NewArray`, `Len`, `IndexLoad`, `IndexStore` |
 | `sel_calls.py` | `Call`, `Return` |
-| `sel_objects.py` | `New`, `FieldLoad`, `FieldStore`, `VTableLoad`, `CallVirt`, y `emit_vtables`; verifican `null` antes de usar un objeto |
+| `sel_objects.py` | `New`, `FieldLoad`, `FieldStore`, `VTableLoad`, `VTableSlotLoad`, `CallVirt`, y `emit_vtables`; verifican `null` antes de usar un objeto |
 | `sel_try.py` | `Try`, `EndTry`, `Catch` |
 | `runtime_exc.py` | pila de manejadores, `rt_throw`, `rt_throw_index`, `rt_throw_null` |
 | `peephole.py` | `optimize(lines)`: mirilla (8 reglas) sobre el MIPS ya generado |

@@ -42,7 +42,6 @@ class AsmResult:
     lines: list[str]  # MIPS crudo (sin mirilla)
     activation: dict = field(default_factory=dict)
     regalloc_trace: list[dict] = field(default_factory=list)
-    warnings: list[str] = field(default_factory=list)
 
 
 class BaseGen:
@@ -146,6 +145,10 @@ def generate_asm(
     `generator_class` permite a las pruebas inyectar selectores propios.
     """
     program = parse_tac(tac, symbol_table)
+    if program.warnings:
+        # el parser tuvo que adivinar un tipo o una dirección: mejor fallar que
+        # generar código que quizá imprime basura
+        raise ValueError("inferencia incompleta: " + "; ".join(program.warnings))
     asm = AsmEmitter(tac_comments=tac_comments)
     gen = (generator_class or AsmGenerator)(program, asm, strict=strict)
     gen.run()
@@ -154,5 +157,4 @@ def generate_asm(
         lines=asm.lines(),
         activation=build_activation(program, gen.frames),
         regalloc_trace=gen.trace,
-        warnings=program.warnings,
     )

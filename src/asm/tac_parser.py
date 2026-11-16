@@ -60,6 +60,7 @@ from asm.ir import (
     Ty,
     Unary,
     VTableLoad,
+    VTableSlotLoad,
     array_of,
     obj_of,
 )
@@ -359,29 +360,30 @@ class _UnitParser:
     def operand(self, text: str) -> Operand:
         text = text.strip()
         if text in ("true", "false"):
-            return Operand(text, "const", BOOL, text == "true", 4)
+            return Operand(text, "const", BOOL, text == "true")
         if text == "null":
-            return Operand(text, "const", NULL, None, 4)
+            return Operand(text, "const", NULL, None)
         if text.startswith("\x00S"):
             lit = self.strings[int(text[2:-1])]
-            return Operand(lit, "const", STR, lit[1:-1], 4)
+            return Operand(lit, "const", STR, lit[1:-1])
         if _RE_NUMBER.match(text):
             if "." in text:
-                return Operand(text, "const", FLOAT, float(text), 4)
-            return Operand(text, "const", INT, int(text), 4)
+                return Operand(text, "const", FLOAT, float(text))
+            return Operand(text, "const", INT, int(text))
         m = _RE_TEMPNUM.match(text)
         if m:
             self.max_temp = max(self.max_temp, int(m.group(1)))
-            return Operand(text, "temp", self.env.get(text, UNKNOWN), None, 4)
+            if text not in self.env:
+                self.warn(f"se lee el temporal {text} antes de definirlo")
+            return Operand(text, "temp", self.env.get(text, UNKNOWN), None)
         sym = self.symbols.get(text)
-        size = int(sym["size"]) if sym and sym.get("size") else 4
-        if text in self.params:
-            size = 4  # los parámetros siempre ocupan una palabra
         ty = self.env.get(text)
         if ty is None:
             ty = ty_from_str(sym["type"]) if sym else UNKNOWN
             self.env[text] = ty
-        return Operand(text, "var", ty, None, size)
+            if sym is None:
+                self.warn(f"{text} no está en la tabla de símbolos")
+        return Operand(text, "var", ty, None)
 
     def dest(self, text: str, ty: Ty) -> Operand:
         """Operando destino con el tipo ya calculado."""
@@ -393,7 +395,7 @@ class _UnitParser:
                 ty = INT
                 self.warn(f"tipo desconocido para {text}; se asume int")
             self.env[text] = ty
-            return Operand(text, "temp", ty, None, 4)
+            return Operand(text, "temp", ty, None)
         op = self.operand(text)
         known = op.ty
         if known.kind == "unknown":
@@ -592,15 +594,17 @@ class _UnitParser:
         return None
 
     def _vtable_entry(self, dst_text: str, base: Operand, idx: Operand) -> Instr:
-        """`$t = $v[k]` con `$v` una tabla de métodos: acceso crudo."""
+        """`$t = $v[k]` con `$v` una tabla de métodos: el método del slot `k`."""
+        if not (idx.is_const and isinstance(idx.value, int)):
+            raise ValueError(f"{self.label}: el slot de una tabla de métodos debe ser constante")
         dst = self.dest(dst_text, INT)
         cls = self.vt_class.get(base.text)
-        if cls and idx.is_const:
+        if cls:
             vt = self.info.classes.get(cls, {}).get("layout", {}).get("vtable", [])
             for entry in vt:
                 if entry.get("slot") == idx.value:
                     self.method_of[dst.text] = entry["label"]
-        return IndexLoad(dst, base, idx)
+        return VTableSlotLoad(dst, base, idx.value)
 
 
 class _Param(Instr):

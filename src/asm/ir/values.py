@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from asm.ir.base import Instr, _vals
+from asm.ir.base import Instr
 from asm.ir.operands import Operand
 
 
@@ -12,36 +12,33 @@ from asm.ir.operands import Operand
 class Copy(Instr):
     """`x = y`"""
 
+    READS = ("src",)
+    WRITES = ("dst",)
+
     dst: Operand
     src: Operand
     line: str = ""
-
-    def reads(self) -> list[Operand]:
-        return _vals(self.src)
-
-    def writes(self) -> list[Operand]:
-        return [self.dst]
 
 
 @dataclass(repr=False)
 class Unary(Instr):
     """`x = - y`, `x = ! y` o `x = itof y` (entero a float)."""
 
+    READS = ("src",)
+    WRITES = ("dst",)
+
     dst: Operand
     op: str  # '-' | '!' | 'itof'
     src: Operand
     line: str = ""
 
-    def reads(self) -> list[Operand]:
-        return _vals(self.src)
-
-    def writes(self) -> list[Operand]:
-        return [self.dst]
-
 
 @dataclass(repr=False)
 class Binary(Instr):
     """`x = a op b`"""
+
+    READS = ("a", "b")
+    WRITES = ("dst",)
 
     dst: Operand
     a: Operand
@@ -49,19 +46,12 @@ class Binary(Instr):
     b: Operand
     line: str = ""
 
-    def reads(self) -> list[Operand]:
-        return _vals(self.a, self.b)
-
-    def writes(self) -> list[Operand]:
-        return [self.dst]
-
 
 @dataclass(repr=False)
 class Print(Instr):
     """`print x`"""
 
+    READS = ("src",)
+
     src: Operand
     line: str = ""
-
-    def reads(self) -> list[Operand]:
-        return _vals(self.src)

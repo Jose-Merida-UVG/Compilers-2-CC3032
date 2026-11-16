@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
-from asm.ir.base import Instr, _vals
+from asm.ir.base import Instr
 from asm.ir.operands import Operand
 
 
@@ -29,6 +29,8 @@ class Goto(Instr):
 class CondJump(Instr):
     """`if a goto L`, `ifFalse a goto L` o `if a REL b goto L`."""
 
+    READS = ("a", "b")
+
     sense: str  # 'if' | 'ifFalse'
     a: Operand
     rel: Optional[str]  # '<', '==', ...; None si solo se prueba `a`
@@ -36,19 +38,15 @@ class CondJump(Instr):
     label: str
     line: str = ""
 
-    def reads(self) -> list[Operand]:
-        return _vals(self.a, self.b)
-
 
 @dataclass(repr=False)
 class Return(Instr):
     """`return x` o `return`."""
 
+    READS = ("src",)
+
     src: Optional[Operand]  # None si no devuelve valor
     line: str = ""
-
-    def reads(self) -> list[Operand]:
-        return _vals(self.src)
 
 
 # Terminan un bloque básico.

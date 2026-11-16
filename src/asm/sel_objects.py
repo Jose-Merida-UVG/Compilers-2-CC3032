@@ -9,7 +9,9 @@ palabra por slot con la dirección del método.
 from __future__ import annotations
 
 from asm.emitter import AsmEmitter, mangle_func, mangle_vtable
-from asm.ir import Call, CallVirt, ClassUnit, FieldLoad, FieldStore, New, Operand, VTableLoad
+from asm.ir import (
+    Call, CallVirt, ClassUnit, FieldLoad, FieldStore, New, Operand, VTableLoad, VTableSlotLoad,
+)
 from asm.sel_ops import as_float
 
 
@@ -57,6 +59,14 @@ class ObjectSel:
         self._null_check(ro, ins.obj)
         rd = regs.def_(ins.dst)
         asm.ins(f"lw    {rd}, 0({ro})")  # la tabla de métodos es la palabra 0
+
+    def sel_VTableSlotLoad(self, ins: VTableSlotLoad) -> None:
+        """Entrada `slot` de la tabla de métodos: `lw dst, 4*slot(tabla)`. La tabla
+        no lleva cabecera de longitud ni se verifica el rango."""
+        regs, asm = self.regs, self.a
+        rt = regs.use(ins.table)
+        rd = regs.def_(ins.dst)
+        asm.ins(f"lw    {rd}, {4 * ins.slot}({rt})")
 
     def sel_CallVirt(self, ins: CallVirt) -> None:
         """Igual que `sel_Call` (sel_calls.py), pero salta a la dirección que

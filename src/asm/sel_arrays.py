@@ -9,10 +9,6 @@ elemento sin importar el tipo. Acceso a `base[idx]`:
     sll   t, idx, 2 ; addu t, t, base
     lw    dst, 4(t)
 
-Un operando de tipo `vtable` (`x = vtable obj` del despacho dinámico) NO lleva
-cabecera ni verificación: el índice es el número de slot y el acceso es
-`lw dst, 4*slot(base)`.
-
 Todos los cálculos auxiliares usan `regs.scratch()`; el destino se pide al
 final (`def_` puede reutilizar el registro de un fuente que ya murió).
 """
@@ -41,13 +37,6 @@ class ArraySel:
     def sel_IndexLoad(self, ins: IndexLoad) -> None:
         regs, asm = self.regs, self.a
         rb = regs.use(ins.base)
-
-        if ins.base.ty.kind == "vtable":  # acceso crudo a la tabla de métodos
-            if not (ins.idx.is_const and isinstance(ins.idx.value, int)):
-                raise NotImplementedError(f"vtable con índice no constante: {ins.line!r}")
-            rd = regs.def_(ins.dst)
-            asm.ins(f"lw    {rd}, {4 * ins.idx.value}({rb})")
-            return
 
         offset, base_reg = self._element_address(ins.base, rb, ins.idx)
         if offset is None:  # índice constante negativo: siempre falla

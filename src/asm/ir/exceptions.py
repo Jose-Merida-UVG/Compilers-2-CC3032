@@ -27,8 +27,7 @@ class EndTry(Instr):
 class Catch(Instr):
     """`catch e`: primera línea del manejador; `e` recibe el mensaje (string)."""
 
+    WRITES = ("var",)
+
     var: Operand
     line: str = ""
-
-    def writes(self) -> list[Operand]:
-        return [self.var]
