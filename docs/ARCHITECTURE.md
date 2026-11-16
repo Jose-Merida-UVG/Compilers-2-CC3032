@@ -85,18 +85,19 @@ divergir.
 
 ## Reparto del trabajo
 
-Ambos proyectos se repartieron entre las mismas tres personas, con un dueño único
+Los tres proyectos se repartieron entre las mismas tres personas, con un dueño único
 por archivo o por regla para no pisarse. La referencia final es el historial de
 commits de cada integrante; el detalle está en la última sección de cada
 documento de fase.
 
-| Integrante (usuario de GitHub) | Proyecto 1 (semántico) | Proyecto 2 (código intermedio) |
-|---|---|---|
-| Camila Richter (`Cami`) | tabla de símbolos y ámbitos | diseño del TAC y reciclaje de temporales (`instructions.py`, `emitter.py`, `generator.py`), anotaciones del checker, integración en `compiler.py`, `main.py` y `server.py`, y la GUI |
-| Marinés García (`NESHGP04`) | sistema de tipos y funciones | declaraciones, expresiones, control de flujo y try/catch (`gen_core.py`, `gen_control.py`) |
-| Jose Antonio Mérida (`TonitoMC`) | control de flujo, clases, arreglos, IDE | funciones, recursividad, clases y herencia (`gen_functions.py`, `gen_classes.py`), y tabla de símbolos con layout de memoria (`layout.py`, `symbols.py`) |
+| Integrante (usuario de GitHub) | Proyecto 1 (semántico) | Proyecto 2 (código intermedio) | Proyecto 3 (ensamblador MIPS) |
+|---|---|---|---|
+| Camila Richter (`Cami`) | tabla de símbolos y ámbitos | diseño del TAC y reciclaje de temporales (`instructions.py`, `emitter.py`, `generator.py`), anotaciones del checker, integración en `compiler.py`, `main.py` y `server.py`, y la GUI | integración del generador en `analyze()`, la CLI (`--asm`) y el servidor (`compiler.py`, `main.py`, `server.py`); pruebas de declaraciones, asignaciones, constantes y sombreado, de los marcos de activación y de `getReg` (derrames, trazas y registros protegidos) |
+| Marinés García (`NESHGP04`) | sistema de tipos y funciones | declaraciones, expresiones, control de flujo y try/catch (`gen_core.py`, `gen_control.py`) | esqueleto del generador (IR tipado, parser del TAC, emisor, `getReg`, marcos de activación y driver: `ir.py`, `tac_parser.py`, `emitter.py`, `regalloc.py`, `frames.py`, `generator.py`, `sel_core.py`); runtime de impresión, memoria y strings (`runtime.py`); selectores de aritmética, lógicas, arreglos, control de flujo, funciones y recursividad (`sel_ops.py`, `sel_control.py`, `sel_arrays.py`, `sel_calls.py`); closures (variables capturadas); en el IDE, los visores de ensamblador y de registros y árbol de activación; intérprete mínimo de MIPS para pruebas; y las baterías de esas seis áreas, también ejecutadas en MARS |
+| Jose Antonio Mérida (`TonitoMC`) | control de flujo, clases, arreglos, IDE | funciones, recursividad, clases y herencia (`gen_functions.py`, `gen_classes.py`), y tabla de símbolos con layout de memoria (`layout.py`, `symbols.py`) | clases, herencia y llamadas virtuales (`sel_objects.py`); `try/catch` y excepciones (`sel_try.py`, `runtime_exc.py`); datos de activación (`activation.py`); mirilla (`peephole.py`); ejecución en MARS desde el IDE y la CLI (`run_mips.py`); pestaña de selección de registros; ajuste de closures; refactor del IR y del generador; 114 programas de estrés; y la documentación (`workspace/MIPS.md`, `src/asm/map.md`) |
 
-Detalle: [`semantic.md`](semantic.md) §10 y [`tac.md`](tac.md) §14.
+Detalle: [`semantic.md`](semantic.md) §10 y [`tac.md`](tac.md) §14. El código objeto (P3) se explica en
+[`workspace/MIPS.md`](../workspace/MIPS.md) y en [`src/asm/map.md`](../src/asm/map.md).
 
 ## Conclusiones
 
