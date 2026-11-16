@@ -6,6 +6,9 @@ MIPS. El código vive en `src/asm/`; el recorrido archivo por archivo está en
 `src/asm/map.md`. El TAC y el layout (de donde salen las direcciones) están
 explicados en `TAC.md`.
 
+Si nunca has leído MIPS, empieza por `MIPS-basico.md` (registros, instrucciones,
+pila y syscalls en una página).
+
 Para verlo en acción: abrir `input/comp-mips/13-recorrido-completo.cps`,
 **▶ Compilar** y mirar las pestañas `tac`, `asm` y `activación`. Desde la
 terminal: `make mips FILE=workspace/input/comp-mips/09-herencia-valido.cps`.
