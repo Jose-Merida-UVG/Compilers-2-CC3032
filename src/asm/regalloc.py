@@ -209,6 +209,17 @@ class RegAlloc:
             self.op_reg.pop(op.key, None)
         self.dirty.discard(reg)
 
+    def _read_by_current(self, op: Operand) -> bool:
+        """¿La instrucción que se está traduciendo todavía lee `op`?
+
+        `next_use` mira *después* de la instrucción, así que un temporal que solo
+        usa esta instrucción (p. ej. un argumento de `call`, que se empujan uno por
+        uno) parece muerto mientras aún falta leerlo: si se derrama sin guardar, se pierde.
+        """
+        if self._cur >= len(self._block):
+            return False
+        return any(r.key == op.key for r in self._block[self._cur].reads())
+
     def _alloc(self, cls: str, avoid: tuple = ()) -> str:
         """Entrega un registro de la clase `cls`."""
         pool = INT_REGS if cls == "int" else FLOAT_REGS
@@ -231,7 +242,7 @@ class RegAlloc:
                 "(la instrucción necesita más registros que el pool)"
             )
         victim = self.reg_op[best]
-        if best in self.dirty and self.next_use(victim.key) != DEAD:
+        if best in self.dirty and (self.next_use(victim.key) != DEAD or self._read_by_current(victim)):
             self._store(best, victim)
         self._record(victim.key, best, "spill")
         self._drop(best)
