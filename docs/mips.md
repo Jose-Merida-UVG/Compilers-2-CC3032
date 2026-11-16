@@ -164,7 +164,7 @@ driver falla con `falta el selector sel_X`. El driver antepone un `flush` a
 | `sel_objects.py` | `New`, `FieldLoad`, `FieldStore`, `VTableLoad`, `CallVirt`, y `emit_vtables`; verifican `null` antes de usar un objeto |
 | `sel_try.py` | `Try`, `EndTry`, `Catch` |
 | `runtime_exc.py` | pila de manejadores, `rt_throw`, `rt_throw_index`, `rt_throw_null` |
-| `peephole.py` | `optimize(lines)`: mirilla sobre el MIPS ya generado |
+| `peephole.py` | `optimize(lines)`: mirilla (8 reglas) sobre el MIPS ya generado |
 | `activation.py` | `build_activation(program, frames)`: registros de activación y árbol de llamadas para el IDE |
 
 El driver importa con respaldo los módulos que faltan (clase vacía); un programa
@@ -184,13 +184,42 @@ En un programa que usa `try`, `TrySel._dispatch` guarda cada resultado a su casa
 terminar la instrucción: si algo lanza a mitad de un bloque, el manejador (que
 empieza con los registros vacíos) lee valores al día de memoria.
 
-### Mirilla y datos del IDE
+### Mirilla (`peephole.py`)
 
-`peephole.optimize` quita `move $r, $r`, el `j L` que va justo antes de `L:` y el
-`lw` que recarga lo que acaba de guardar el `sw`; devuelve cuántas veces aplicó
-cada una (el IDE lo muestra). `activation.build_activation` arma los marcos
-(`FrameInfo.slots()`) y el árbol de llamadas desplegado desde `__main`, con las
-llamadas recursivas y virtuales marcadas.
+`optimize(lines)` recibe el MIPS ya generado y lo recorre buscando patrones entre
+instrucciones contiguas. Los comentarios `# TAC: ...` y las líneas en blanco se
+saltan; las etiquetas **no**, porque alguien puede saltar a ellas. Repite hasta
+5 pasadas, porque quitar una instrucción puede dejar otro patrón al descubierto, y
+devuelve las líneas nuevas y cuántas veces se aplicó cada regla (el IDE lo muestra).
+
+| Regla | Antes | Después |
+|---|---|---|
+| `move_redundante` | `move $r, $r` | se quita |
+| `salto_a_la_siguiente` | `j L` justo antes de `L:` (puede haber otras etiquetas en medio) | se quita el salto |
+| `carga_tras_guardar` | `sw $r, A` + `lw $r, A` (igual con `swc1`/`lwc1`) | se quita el `lw`; `lb` no, porque extiende el signo |
+| `guardar_tras_cargar` | `lw $r, A` + `sw $r, A` | se quita el `sw`; no aplica si `$r` es la base de `A` (`lw $t0, 0($t0)` cambia la dirección) |
+| `identidad_aritmetica` | `addiu $r,$r,0`, `addu $r,$r,$zero`, `sll $r,$r,0`, `ori $r,$r,0` | se quita (el destino debe ser el mismo registro) |
+| `move_ida_y_vuelta` | `move a, b` + `move b, a` | se quita el segundo |
+| `salto_sobre_salto` | `beq x,y,L1` + `j L2` + `L1:` | `bne x,y,L2` + `L1:` (y `bne` → `beq`); `L1` debe ser el destino del salto condicional |
+| `codigo_muerto` | instrucciones entre un `j`/`jr` y la siguiente etiqueta o directiva | se quitan (nadie puede llegar a ellas) |
+
+Ejemplo (`salto_sobre_salto`, que sale de un `if` cuyo cuerpo termina en `break`):
+
+```
+    beq   $t0, $zero, L1          bne   $t0, $zero, L2
+    j     L2                 →  L1:
+L1:
+```
+
+Ninguna regla cambia lo que hace el programa: `test_asm_peephole.py` prueba cada
+una (y los casos donde no deben aplicar) y que todos los programas válidos de
+`src/tests/asm/` impriman lo mismo con y sin mirilla.
+
+### Datos del IDE (`activation.py`)
+
+`activation.build_activation` arma los marcos (`FrameInfo.slots()`) y el árbol de
+llamadas desplegado desde `__main`, con las llamadas recursivas y virtuales
+marcadas.
 
 ## 7. Pruebas
 
