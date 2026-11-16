@@ -17,8 +17,8 @@ class Call(Instr):
     WRITES = ("dst",)
 
     dst: Optional[Operand]  # None si se descarta el resultado
-    callee: str  # etiqueta TAC ("fact", "Animal.hablar")
-    args: list[Operand]  # en métodos, `this` es el primero
+    callee: str  # Etiqueta TAC ("fact", "Animal.hablar")
+    args: list[Operand]  # En métodos, `this` es el primero
     line: str = ""
 
 
@@ -32,7 +32,7 @@ class CallVirt(Instr):
     dst: Optional[Operand]
     target: Operand
     args: list[Operand]
-    # el método que corresponde al tipo estático del receptor; lo usan los tipos
+    # El método que corresponde al tipo estático del receptor; lo usan los tipos
     # de los parámetros (sel_objects) y el árbol de activación (activation.py)
     static_target: Optional[str] = None
     line: str = ""

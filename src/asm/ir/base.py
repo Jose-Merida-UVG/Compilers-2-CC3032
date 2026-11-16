@@ -13,13 +13,7 @@ def non_const(*ops: Optional[Operand]) -> list[Operand]:
 
 
 class Instr:
-    """Base de las instrucciones. `line` es el TAC del que salió.
-
-    Cada subclase declara con `READS` y `WRITES` los *nombres de los campos*
-    que lee y escribe (un campo puede ser un operando, `None` o una lista de
-    operandos). De ahí salen `reads()` y `writes()`, que el asignador usa para
-    calcular el siguiente uso de cada valor.
-    """
+    """Base de las instrucciones."""
 
     line: str = ""
     READS: ClassVar[tuple[str, ...]] = ()

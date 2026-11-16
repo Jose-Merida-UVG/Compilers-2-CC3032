@@ -10,17 +10,7 @@ from asm.ir.base import Instr
 
 @dataclass
 class FuncUnit:
-    """Una función o método (`func ... endfunc`).
-
-    label:   etiqueta TAC ("fact", "Animal.hablar", "__main")
-    params:  nombres de los parámetros en orden (`this` primero en métodos)
-    body:    las instrucciones
-    frame:   tamaños del marco: params_size, locals_size, temps, temps_size,
-             saved_size, total_size
-    symbols: nombre TAC -> {kind, type, address, size}, los de la función y
-             luego los globales
-    owner_class: clase a la que pertenece, si es un método
-    """
+    """Una función o método (`func ... endfunc`)."""
 
     label: str
     params: list[str]
@@ -28,7 +18,7 @@ class FuncUnit:
     frame: dict
     symbols: dict = field(default_factory=dict)
     owner_class: Optional[str] = None
-    param_types: dict = field(default_factory=dict)  # parámetro -> Ty
+    param_types: dict = field(default_factory=dict)  # Parámetro -> Ty
 
 
 @dataclass
@@ -37,7 +27,7 @@ class ClassUnit:
 
     name: str
     parent: Optional[str]
-    vtable: list[str]  # etiqueta del método de cada slot
+    vtable: list[str]  # Etiqueta del método de cada slot
     funcs: list[FuncUnit]
     layout: dict = field(default_factory=dict)
 
@@ -47,9 +37,9 @@ class Program:
     """El TAC completo."""
 
     units: list  # FuncUnit | ClassUnit, en el orden del TAC
-    globals_size: int = 4  # bytes de variables globales
-    classes: dict = field(default_factory=dict)  # nombre -> layout JSON
-    func_types: dict = field(default_factory=dict)  # etiqueta -> (params, ret)
+    globals_size: int = 4  # Bytes de variables globales
+    classes: dict = field(default_factory=dict)  # Nombre -> layout JSON
+    func_types: dict = field(default_factory=dict)  # Etiqueta -> (params, ret)
     warnings: list = field(default_factory=list)
 
     def functions(self) -> list[FuncUnit]:

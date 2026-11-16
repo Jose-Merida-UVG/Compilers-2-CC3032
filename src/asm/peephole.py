@@ -55,8 +55,7 @@ def _next(lines: list[str], i: int) -> int | None:
 
 
 def _label_follows(lines: list[str], i: int, target: str) -> bool:
-    """¿`target:` aparece antes de cualquier instrucción? (otras etiquetas en
-    medio no importan: caen igual a la misma instrucción)."""
+    """¿`target:` aparece antes de la siguiente instrucción?"""
     j = _next(lines, i)
     while j is not None:
         m = _LABEL.match(_code(lines[j]))
@@ -69,10 +68,12 @@ def _label_follows(lines: list[str], i: int, target: str) -> bool:
 
 
 def _is_instruction(code: str) -> bool:
+    """¿La línea es una instrucción (no una etiqueta ni una directiva)?"""
     return bool(code) and not code.endswith(":") and not code.startswith(".")
 
 
 def _pass(lines: list[str], changes: Counter) -> list[str]:
+    """Una pasada completa por las líneas."""
     drop: set[int] = set()
     repl: dict[int, str] = {}
     for i, line in enumerate(lines):
@@ -152,9 +153,10 @@ def _pass(lines: list[str], changes: Counter) -> list[str]:
 
 
 def optimize(lines: list[str]) -> tuple[list[str], dict[str, int]]:
+    """Aplica las reglas hasta que no cambien nada. Devuelve las líneas y cuántas veces se aplicó cada una."""
     changes: Counter = Counter()
     current = list(lines)
-    for _ in range(5):  # quitar una cosa puede dejar otra al descubierto
+    for _ in range(5):  # Quitar una cosa puede dejar otra al descubierto
         before = sum(changes.values())
         current = _pass(current, changes)
         if sum(changes.values()) == before:

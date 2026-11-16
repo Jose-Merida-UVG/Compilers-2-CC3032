@@ -49,7 +49,7 @@ Pipeline: `fuente → Lexer → Parser → SemanticChecker → TACGenerator → 
 - `src/error_listener.py`: listener de errores de ANTLR que da formato en español a los errores léxicos y sintácticos y permite seguir tras el primer error.
 - `src/semantic/`: análisis semántico. `types.py` (sistema de tipos), `symbols.py` (tabla de símbolos y árbol de ámbitos), `errors.py`, `checker.py` (el visitor `SemanticChecker`, con todas las reglas; también anota cada nodo con su tipo y símbolo para la fase de TAC) y `layout.py` (tamaños, offsets, direcciones, registros de activación y layout de clases).
 - `src/tac/`: generación de código intermedio. `generator.py` (`TACGenerator`, une los cuatro mixins), `gen_core.py` (declaraciones, expresiones, condiciones, arreglos), `gen_control.py` (if, bucles, switch, try/catch), `gen_functions.py` (funciones, llamadas, return), `gen_classes.py` (clases, objetos, herencia), `emitter.py` (emisión de instrucciones y reciclaje de temporales) e `instructions.py` (convenciones de formato).
-- `src/asm/`: generación de MIPS. `ir/` (el IR: tipos, operandos e instrucciones), `tac_parser.py` (TAC texto → IR), `frames.py` (marcos de activación), `regalloc.py` (asignador de registros), `sel_*.py` (un selector por instrucción), `runtime.py`/`runtime_exc.py` (rutinas y excepciones), `peephole.py` (mirilla), `activation.py` (datos del IDE), `emitter.py` y `generator.py` (el driver). Ver [Código objeto (MIPS)](#código-objeto-mips).
+- `src/asm/`: generación de MIPS. `ir/` (el IR: tipos, operandos e instrucciones), `tac_parser.py` (TAC texto → IR), `frames.py` (marcos de activación), `regalloc.py` (asignador de registros), `sel_*.py` (los selectores, agrupados por tema: asignación, operaciones, control, arreglos, llamadas, objetos, excepciones), `runtime.py`/`runtime_exc.py` (rutinas y excepciones), `peephole.py` (mirilla), `activation.py` (datos del IDE), `emitter.py` y `generator.py` (el driver). Ver [Código objeto (MIPS)](#código-objeto-mips).
 - `src/main.py`: punto de entrada del CLI (`make cli`).
 - `src/server.py`: backend FastAPI, con una API de archivos sobre `workspace/` y `/api/run`.
 - `src/tests/`: pruebas automáticas (`make test`). `src/tests/semantic/<categoría>/` tiene una batería de casos `.cps` por categoría de regla semántica, y `src/tests/tac/<área>/` tiene casos válidos e inválidos por cada punto de la rúbrica de TAC (los válidos deben compilar y generar TAC).
@@ -221,6 +221,11 @@ MARS/SPIM. Vive en `src/asm/`; la entrada es `generate_asm(tac, symbol_table)`
 (`generator.py`) y la llama `compiler.analyze()` solo si no hubo ningún error.
 Si el generador falla, el error se reporta como "Error interno al generar el
 ensamblador" y no se publica ni TAC ni MIPS.
+
+**Dónde leer el código:** el docstring de `src/asm/__init__.py` es la guía
+general: define el vocabulario (IR, selector, casa, bloque, flush) y lista los
+archivos en el orden en que conviene leerlos. Cada archivo explica su parte en
+su propio docstring.
 
 ### Flujo
 

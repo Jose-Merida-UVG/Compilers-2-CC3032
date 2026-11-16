@@ -19,8 +19,8 @@ class FieldLoad(Instr):
     dst: Operand
     obj: Operand
     field: str
-    offset: int = 0  # offset del campo dentro del objeto (el layout de la clase)
-    fsize: int = 4  # tamaño del campo (1 si es boolean)
+    offset: int = 0  # Offset del campo dentro del objeto (el layout de la clase)
+    fsize: int = 4  # Tamaño del campo (1 si es boolean)
     line: str = ""
 
 
@@ -35,20 +35,19 @@ class FieldStore(Instr):
     src: Operand
     offset: int = 0
     fsize: int = 4
-    ty: Ty = UNKNOWN  # tipo del campo: decide si se guarda como float
+    ty: Ty = UNKNOWN  # Tipo del campo: decide si se guarda como float
     line: str = ""
 
 
 @dataclass(repr=False)
 class New(Instr):
-    """`x = new Clase`: reserva el objeto y guarda su tabla de métodos en la
-    palabra 0."""
+    """`x = new Clase`."""
 
     WRITES = ("dst",)
 
     dst: Operand
     cls: str
-    size: int = 4  # bytes del objeto, tabla de métodos incluida
+    size: int = 4  # Bytes del objeto, tabla de métodos incluida
     line: str = ""
 
 
@@ -66,13 +65,12 @@ class VTableLoad(Instr):
 
 @dataclass(repr=False)
 class VTableSlotLoad(Instr):
-    """`x = t[k]` con `t` una tabla de métodos: la dirección del método del
-    slot `k`. Sin cabecera ni verificación de rango."""
+    """`x = t[k]` con `t` una tabla de métodos."""
 
     READS = ("table",)
     WRITES = ("dst",)
 
     dst: Operand
-    table: Operand  # de tipo `vtable`
+    table: Operand  # De tipo `vtable`
     slot: int
     line: str = ""

@@ -1,16 +1,12 @@
-"""ArraySel: arreglos con verificación de rango.
+"""Selector de arreglos con verificación de rango.
 
-Formato: `[ longitud n ][ e0 ][ e1 ] ... [ e(n-1) ]`, 4 bytes por
-elemento sin importar el tipo. Acceso a `base[idx]`:
+Formato: `[longitud][e0][e1]...`, 4 bytes por elemento. `base[idx]`:
 
     lw    len, 0(base)
-    sltu  len, idx, len                # idx < len, SIN signo: un negativo también falla
+    sltu  len, idx, len                # sin signo: un negativo también falla
     beq   len, $zero, rt_throw_index
     sll   t, idx, 2 ; addu t, t, base
     lw    dst, 4(t)
-
-Todos los cálculos auxiliares usan `regs.scratch()`; el destino se pide al
-final (`def_` puede reutilizar el registro de un fuente que ya murió).
 """
 
 from __future__ import annotations
@@ -20,33 +16,37 @@ from asm.sel_ops import as_float, as_float_operand
 
 
 class ArraySel:
+    """Selector de arreglos."""
+
     def sel_NewArray(self, ins: NewArray) -> None:
+        """Reserva un arreglo de `n` elementos con `rt_new_array`."""
         regs, asm = self.regs, self.a
         regs.into("$a0", ins.n)
-        asm.ins("jal   rt_new_array")  # preserva los registros del asignador
+        asm.ins("jal   rt_new_array")  # Preserva los registros del asignador
         rd = regs.def_(ins.dst)
         asm.ins(f"move  {rd}, $v0")
 
     def sel_Len(self, ins: Len) -> None:
+        """La longitud está guardada en la primera palabra del arreglo."""
         regs, asm = self.regs, self.a
         rs = regs.use(ins.src)
         rd = regs.def_(ins.dst)
         asm.ins(f"lw    {rd}, 0({rs})")
 
-    # -- lectura ---------------------------------------------------------------
     def sel_IndexLoad(self, ins: IndexLoad) -> None:
+        """`x = base[idx]`: verifica el rango y carga el elemento."""
         regs, asm = self.regs, self.a
         rb = regs.use(ins.base)
 
         offset, base_reg = self._element_address(ins.base, rb, ins.idx)
-        if offset is None:  # índice constante negativo: siempre falla
+        if offset is None:  # Índice constante negativo: siempre falla
             return
         rd = regs.def_(ins.dst)
         load = "lwc1 " if ins.dst.is_float else "lw   "
         asm.ins(f"{load} {rd}, {offset}({base_reg})")
 
-    # -- escritura ---------------------------------------------------------------
     def sel_IndexStore(self, ins: IndexStore) -> None:
+        """`base[idx] = src`."""
         regs, asm = self.regs, self.a
         rb = regs.use(ins.base)
         elem = ins.base.ty.elem
@@ -67,21 +67,17 @@ class ArraySel:
         asm.ins(f"{store} {rs}, {offset}({base_reg})")
 
     def _bounds_check(self, ri: str, length: str) -> None:
-        """Salta a `rt_throw_index` si `ri` no está en [0, length). Compara sin
-        signo (un índice negativo se ve como un número enorme) y usa solo
-        instrucciones reales de MIPS; `length` se reutiliza como resultado."""
+        """Salta a `rt_throw_index` si `ri` no está en [0, length)."""
         self.a.ins(f"sltu  {length}, {ri}, {length}")
         self.a.ins(f"beq   {length}, $zero, rt_throw_index")
 
-    # -- dirección del elemento ---------------------------------------------------
     def _element_address(self, base, rb: str, idx):
-        """Verifica el rango y devuelve (desplazamiento, registro base) del
-        elemento. Con índice constante no hace falta calcular la dirección."""
+        """Verifica el rango y devuelve (desplazamiento, registro base) del elemento."""
         regs, asm = self.regs, self.a
 
         if idx.is_const:
             k = int(idx.value or 0)
-            if k < 0:  # fuera de rango en compilación
+            if k < 0:  # Fuera de rango en compilación
                 asm.ins("j     rt_throw_index")
                 return None, None
             length = regs.scratch()

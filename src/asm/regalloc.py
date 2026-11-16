@@ -1,23 +1,14 @@
-"""Asignación de registros: `getReg()` con descriptores y siguiente uso.
+"""Asignador de registros: `getReg()` del libro (Aho et al., §8.6.3).
 
-Algoritmo del libro (Aho et al., §8.6.3):
+  * `reg_op`: qué valor tiene cada registro.
+  * `op_reg`: en qué registro está cada valor; `dirty` marca los que tienen un
+    valor más nuevo que su casa en memoria.
+  * Siguiente uso, calculado hacia atrás por bloque: un temporal sin uso
+    futuro está muerto y no se guarda. Las variables nunca mueren.
 
-* **Descriptor de registros**: qué valor tiene cada registro (`reg_op`).
-* **Descriptor de direcciones**: dónde está cada valor, en un registro
-  (`op_reg`) y/o en su casa en memoria (un registro "sucio" tiene un valor más
-  nuevo que su casa).
-* **Siguiente uso** (`_nu`): calculado hacia atrás por bloque básico. Un
-  temporal sin siguiente uso es *muerto*: libera su registro y no se guarda.
-  Las variables nunca mueren (su casa es visible fuera del bloque).
-
-Política *caller-saved* (sin `$s`): todo lo sucio y vivo se guarda a su casa
-al final de cada bloque y antes de cada `jal`; después de una etiqueta o de
-una llamada no se confía en ningún registro. Así el `try/catch` puede
-desenrollar la pila sin restaurar registros.
-
-Los selectores NO nombran registros para valores: piden a `RegAlloc`
-(`use`, `def_`, `scratch`) y solo usan a mano los registros ABI reservados
-(`$a0-$a3`, `$v0`, `$v1`, `$f0`, `$f12`, `$at`) que el asignador nunca entrega.
+Política caller-saved (sin `$s`): lo sucio y vivo se guarda al final de cada
+bloque y antes de cada `jal`, y tras una etiqueta o llamada no se confía en
+ningún registro. Así el `try/catch` desenrolla la pila sin restaurar registros.
 """
 
 from __future__ import annotations
@@ -36,21 +27,21 @@ from asm.ir import (
     Try,
 )
 
+# Pool del asignador; `$a*`, `$v*`, `$f0`, `$f12` y `$at` son de uso fijo.
 INT_REGS = [f"$t{i}" for i in range(10)]
 FLOAT_REGS = ["$f4", "$f6", "$f8", "$f10", "$f14", "$f16", "$f18"]
 
-DEAD = 10**9  # no se vuelve a usar: la mejor víctima de un spill
-LIVE_OUT = 10**6  # vive al salir del bloque: uso lejano y desconocido
+DEAD = 10**9  # No se vuelve a usar: la mejor víctima de un spill
+LIVE_OUT = 10**6  # Vive al salir del bloque: uso lejano y desconocido
 
 
 def is_temp(key: str) -> bool:
+    """¿Es un temporal del TAC (`$t3`)?"""
     return key.startswith("$t")
 
 
-# ── Bloques básicos y vida de temporales entre bloques ───────────────────
 def split_blocks(body: list[Instr]) -> list[list[Instr]]:
-    """Líderes: la primera instrucción, cada etiqueta y lo que sigue a un
-    salto o retorno."""
+    """Parte el cuerpo en bloques básicos."""
     blocks: list[list[Instr]] = []
     cur: list[Instr] = []
     for ins in body:
@@ -123,9 +114,8 @@ def block_live_out(blocks: list[list[Instr]]) -> list[set[str]]:
     return live_out
 
 
-# ── El asignador ────────────────────────────────────────────────────────
 class RegAlloc:
-    """`getReg()` y sus descriptores para una función."""
+    """`getReg()` y sus descriptores; uno por función."""
 
     def __init__(self, asm: AsmEmitter, home: Callable[[Operand], object]):
         self.asm = asm
@@ -138,13 +128,13 @@ class RegAlloc:
         self._alloc_reason = "libre"
 
     def _reset(self) -> None:
-        self.reg_op: dict[str, Operand] = {}  # descriptor de registros
-        self.op_reg: dict[str, str] = {}  # descriptor de direcciones (parte reg.)
+        """Vacía los descriptores: ningún registro tiene nada."""
+        self.reg_op: dict[str, Operand] = {}  # Descriptor de registros
+        self.op_reg: dict[str, str] = {}  # Descriptor de direcciones (parte reg.)
         self.dirty: set[str] = set()
         self.locked: set[str] = set()
         self.scratch_regs: list[str] = []
 
-    # -- información de siguiente uso ------------------------------------
     def start_block(self, instrs: list[Instr], live_out: Optional[set[str]] = None) -> None:
         """Calcula el siguiente uso de cada valor y deja los registros vacíos."""
         self._reset()
@@ -152,7 +142,7 @@ class RegAlloc:
         state: dict[str, int] = {k: LIVE_OUT for k in (live_out or set())}
         nu: list[dict[str, int]] = [dict() for _ in instrs]
         for i in reversed(range(len(instrs))):
-            nu[i] = dict(state)  # info DESPUÉS de la instrucción i
+            nu[i] = dict(state)  # Info DESPUÉS de la instrucción i
             for w in instrs[i].writes():
                 state.pop(w.key, None)
             for r in instrs[i].reads():
@@ -161,6 +151,7 @@ class RegAlloc:
         self._cur = 0
 
     def begin_instr(self, index: int) -> None:
+        """Marca cuál instrucción del bloque se está traduciendo."""
         self._cur = index
 
     def next_use(self, key: str) -> int:
@@ -172,23 +163,27 @@ class RegAlloc:
         return DEAD if is_temp(key) else LIVE_OUT
 
     def _line(self) -> str:
+        """La línea TAC de la instrucción actual (para la traza y los errores)."""
         if self._cur < len(self._block):
             return self._block[self._cur].line
         return ""
 
     def _record(self, op: str, reg: str, reason: str) -> None:
+        """Anota una decisión de `getReg` para la vista del IDE."""
         self.trace.append({"instr": self._line(), "op": op, "reg": reg, "reason": reason})
 
-    # -- acceso a memoria --------------------------------------------------
     @staticmethod
     def _cls(op: Operand) -> str:
+        """Clase de registro que necesita un operando: `float` o `int`."""
         return "float" if op.is_float else "int"
 
     @staticmethod
     def _reg_cls(reg: str) -> str:
+        """Clase de un registro: `$f*` es `float`, el resto `int`."""
         return "float" if reg.startswith("$f") else "int"
 
     def _load(self, reg: str, op: Operand) -> None:
+        """Carga el valor de `op` desde su casa (`lwc1`, `lb` o `lw`)."""
         h = self._home(op)
         if op.is_float:
             self.asm.ins(f"lwc1  {reg}, {h.mem()}")
@@ -198,6 +193,7 @@ class RegAlloc:
             self.asm.ins(f"lw    {reg}, {h.mem()}")
 
     def _store(self, reg: str, op: Operand) -> None:
+        """Guarda `reg` en la casa de `op` (`swc1`, `sb` o `sw`)."""
         h = self._home(op)
         if op.is_float:
             self.asm.ins(f"swc1  {reg}, {h.mem()}")
@@ -206,14 +202,15 @@ class RegAlloc:
         else:
             self.asm.ins(f"sw    {reg}, {h.mem()}")
 
-    # -- obtener un registro ------------------------------------------------
     def _drop(self, reg: str) -> None:
+        """Olvida lo que tenía `reg`, sin guardarlo."""
         op = self.reg_op.pop(reg, None)
         if op is not None:
             self.op_reg.pop(op.key, None)
         self.dirty.discard(reg)
 
     def _alloc(self, cls: str, avoid: tuple = ()) -> str:
+        """Entrega un registro de la clase `cls`."""
         pool = INT_REGS if cls == "int" else FLOAT_REGS
         in_use = self.locked | set(self.scratch_regs) | set(avoid)
         for reg in pool:  # 1) un registro libre
@@ -242,11 +239,7 @@ class RegAlloc:
         return best
 
     def use(self, op: Operand) -> str:
-        """Registro con el valor de `op` (lo carga de su casa si hace falta).
-
-        Las constantes devuelven un registro con su valor (`$zero` para 0,
-        false y null). El registro queda bloqueado hasta `end_instr`.
-        """
+        """Registro con el valor de `op` (lo carga de su casa si hace falta)."""
         if op.is_const:
             return self._const_reg(op)
         cls = self._cls(op)
@@ -267,17 +260,7 @@ class RegAlloc:
         return reg
 
     def def_(self, op: Operand, avoid: tuple = ()) -> str:
-        """`getReg` del resultado: registro donde se calculará el nuevo valor.
-
-        Reglas (Aho): 1) si `op` ya está en un registro se reutiliza;
-        2) se reutiliza el registro de un operando fuente temporal que ya no
-        tiene siguiente uso; 3) un registro libre; 4) spill de la víctima con el
-        siguiente uso más lejano.
-
-        OJO: puede devolver el MISMO registro que un operando fuente que ya no
-        se usa. No escribas el destino antes de terminar de leer los fuentes;
-        si necesitas que sean distintos, pasa `avoid=(reg_fuente,)`.
-        """
+        """Registro donde se calculará el nuevo valor de `op`."""
         cls = self._cls(op)
         reg = self.op_reg.get(op.key)
         if reg is not None and (self._reg_cls(reg) != cls or reg in avoid):
@@ -285,12 +268,12 @@ class RegAlloc:
             reg = None
         reason = "mismo registro"
         if reg is None:
-            for cand in sorted(self.locked):  # operandos fuente de esta instrucción
+            for cand in sorted(self.locked):  # Operandos fuente de esta instrucción
                 src = self.reg_op.get(cand)
                 if (src is not None and cand not in avoid
                         and self._reg_cls(cand) == cls
                         and is_temp(src.key) and self.next_use(src.key) == DEAD):
-                    self._drop(cand)  # su valor murió: no hace falta guardarlo
+                    self._drop(cand)  # Su valor murió: no hace falta guardarlo
                     reg, reason = cand, "reuso"
                     break
         if reg is None:
@@ -310,8 +293,8 @@ class RegAlloc:
         self._record("<scratch>", reg, self._alloc_reason)
         return reg
 
-    # -- constantes ----------------------------------------------------------
     def _const_reg(self, op: Operand) -> str:
+        """Registro con el valor de una constante."""
         if op.ty.kind != "float" and op.ty.kind != "str" and op.value in (0, False, None):
             return "$zero"
         if op.ty.kind == "float":
@@ -323,6 +306,7 @@ class RegAlloc:
         return reg
 
     def _load_const(self, reg: str, op: Operand) -> None:
+        """Carga una constante que no es float."""
         if op.ty.kind == "str":
             self.asm.ins(f"la    {reg}, {self.asm.string(op.text)}")
         elif op.ty.kind == "bool":
@@ -333,8 +317,7 @@ class RegAlloc:
             self.asm.ins(f"li    {reg}, {int(op.value)}")
 
     def into(self, target: str, op: Operand) -> None:
-        """Deja el valor de `op` en un registro fijo (p. ej. `$a0`, `$f12`),
-        sin pasar por el pool."""
+        """Deja el valor de `op` en un registro fijo como `$a0`."""
         if op.is_const:
             if op.ty.kind == "float":
                 self.asm.ins(f"l.s   {target}, {self.asm.float_(float(op.value))}")
@@ -347,7 +330,6 @@ class RegAlloc:
         else:
             self._load(target, op)
 
-    # -- puntos de sincronización ---------------------------------------------
     def flush(self) -> None:
         """Guarda a su casa todo lo sucio que sigue vivo (no invalida)."""
         for reg in sorted(self.dirty):
@@ -358,7 +340,7 @@ class RegAlloc:
 
     def invalidate(self) -> None:
         """Olvida todos los registros (tras una etiqueta o una llamada)."""
-        if self.dirty:  # por seguridad: nada vivo se pierde
+        if self.dirty:  # Por seguridad: nada vivo se pierde
             self._record("<flush implícito>", "-", "flush")
             self.flush()
         self.reg_op.clear()

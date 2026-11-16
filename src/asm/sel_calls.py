@@ -1,22 +1,14 @@
-"""CallSel: llamadas a funciones y `return`.
+"""Selector de llamadas y `return`. Secuencia caller-saved, sin `$s`:
 
-Secuencia de llamada. Todo es *caller-saved*: no se usan `$s`.
-
-        addiu $sp, $sp, -4*n          # n argumentos (en métodos, `this` es el 0)
+        addiu $sp, $sp, -4*n          # espacio para n argumentos
         sw    r_i, 4*i($sp)           # swc1 si es float
-        <flush>                       # todo lo sucio a su casa, ANTES de saltar
+        <flush>
         jal   f_destino
-        <invalidate>                  # tras la llamada ningún registro es confiable
+        <invalidate>                  # ningún registro es confiable
         addiu $sp, $sp, 4*n
         move  rd, $v0                 # mov.s rd, $f0 si es float
 
-El valor de retorno viaja en `$v0` (int, bool, string, referencias) o `$f0`
-(float). Ninguna dirección de las "casas" es relativa a `$sp`, así que mover
-`$sp` para empujar argumentos no invalida nada.
-
-Las constantes se pasan por `$v1` / `$f12` (reservados) en lugar de ocupar un
-registro del asignador: una llamada con muchos argumentos constantes no
-agotaría el pool.
+Las constantes se pasan por `$v1` o `$f12` para no gastar registros del pool.
 """
 
 from __future__ import annotations
@@ -26,10 +18,10 @@ from asm.sel_ops import as_float, as_float_operand
 
 
 class CallSel:
-    # -- tipos conocidos del callee ------------------------------------------------
+    """Selector de llamadas directas y de `return`."""
+
     def _param_is_float(self, ins: Call, i: int) -> bool:
-        """¿El parámetro `i` del callee es float? En constructores y métodos el
-        argumento 0 es `this`, que `func_types` no lista: se desplaza el índice."""
+        """¿El parámetro `i` del callee es float? (`this` no está en `func_types`.)"""
         types = self.program.func_types.get(ins.callee)
         if not types:
             return False
@@ -37,11 +29,12 @@ class CallSel:
         return 0 <= k < len(types[0]) and types[0][k].is_float
 
     def _returns_float(self, label: str) -> bool:
+        """¿La función `label` devuelve un float?"""
         types = self.program.func_types.get(label)
         return bool(types and types[1].is_float)
 
-    # -- llamada ------------------------------------------------------------------
     def sel_Call(self, ins: Call) -> None:
+        """Empuja los argumentos, guarda los registros, llama y recoge el resultado de `$v0` o `$f0`."""
         regs, asm = self.regs, self.a
         n = len(ins.args)
         if n:
@@ -81,10 +74,8 @@ class CallSel:
             reg = regs.use(arg)
         asm.ins(f"sw    {reg}, {offset}($sp)")
 
-    # -- return -------------------------------------------------------------------
     def sel_Return(self, ins: Return) -> None:
-        """Valor a `$v0`/`$f0` y salto al epílogo (que es del marco). El driver
-        ya hizo `flush()` antes de despachar el `Return`."""
+        """Valor a `$v0`/`$f0` y salto al epílogo (que es del marco)."""
         asm, regs = self.a, self.regs
         if ins.src is not None:
             src = ins.src
@@ -93,7 +84,7 @@ class CallSel:
                     regs.into("$f0", src if src.ty.kind == "float" else as_float_operand(src))
                 elif src.is_float:
                     regs.into("$f0", src)
-                else:  # entero donde se espera float
+                else:  # Entero donde se espera float
                     rf = as_float(self, src)
                     asm.ins(f"mov.s $f0, {rf}")
             else:

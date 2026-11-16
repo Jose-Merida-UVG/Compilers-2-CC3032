@@ -16,7 +16,7 @@ class NewArray(Instr):
     WRITES = ("dst",)
 
     dst: Operand
-    n: Operand  # cantidad de elementos
+    n: Operand  # Cantidad de elementos
     line: str = ""
 
 

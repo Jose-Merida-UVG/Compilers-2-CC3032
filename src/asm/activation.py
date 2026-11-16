@@ -1,13 +1,10 @@
-"""Datos del IDE: registros de activación y árbol de activación.
+"""Datos para el IDE: marcos y árbol de activación.
 
-    frames  etiqueta -> {label, total_size, slots}  (de `FrameInfo.slots()`)
-    tree    el grafo de llamadas desplegado desde `__main`; cada nodo es una
-            llamada (`Call` o `CallVirt`) y lleva la línea TAC que la origina
+    frames  etiqueta -> {label, total_size, slots}
+    tree    llamadas desplegadas desde `__main`, con la línea TAC de cada una
 
-Una llamada a una función que ya está en la rama se marca `recursive` y no se
-despliega (`truncated`). `CallVirt` usa el método del tipo estático y se marca
-`virtual`. El árbol se corta en `MAX_NODES` para que un grafo muy ramificado no
-crezca sin límite.
+Una llamada recursiva se marca `recursive` y no se despliega; las llamadas
+virtuales usan el método del tipo estático. El árbol se corta en `MAX_NODES`.
 """
 
 from __future__ import annotations
@@ -20,10 +17,12 @@ MAX_NODES = 400
 
 
 def build_activation(program: Program, frames: dict[str, FrameInfo]) -> dict:
+    """Arma el diccionario que muestra el IDE (formato en el docstring del módulo)."""
     units: dict[str, FuncUnit] = {u.label: u for u in program.functions()}
     budget = [MAX_NODES]
 
     def expand(label: str, path: tuple[str, ...]) -> list[dict]:
+        """Nodos hijos de `label`."""
         unit = units.get(label)
         children: list[dict] = []
         for ins in unit.body if unit else []:

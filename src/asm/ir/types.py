@@ -8,16 +8,11 @@ from typing import Optional
 
 @dataclass(frozen=True)
 class Ty:
-    """Tipo estático de un valor.
-
-    kind: 'int' 'float' 'bool' 'str' 'array' 'obj' 'vtable' 'null' 'void'
-          'unknown'
-    `str`, `array`, `obj` y `vtable` son punteros: caben en un registro entero.
-    """
+    """Tipo estático de un valor."""
 
     kind: str
-    elem: Optional["Ty"] = None  # tipo de los elementos, solo en 'array'
-    cls: Optional[str] = None  # nombre de la clase, solo en 'obj'
+    elem: Optional["Ty"] = None  # Tipo de los elementos, solo en 'array'
+    cls: Optional[str] = None  # Nombre de la clase, solo en 'obj'
 
     @property
     def is_float(self) -> bool:
@@ -37,10 +32,10 @@ INT = Ty("int")
 FLOAT = Ty("float")
 BOOL = Ty("bool")
 STR = Ty("str")
-NULL = Ty("null")  # el literal `null`
-VOID = Ty("void")  # una función que no devuelve nada
-VTABLE = Ty("vtable")  # tabla de métodos de un objeto (`x = vtable obj`)
-UNKNOWN = Ty("unknown")  # el parser no pudo deducirlo
+NULL = Ty("null")  # El literal `null`
+VOID = Ty("void")  # Una función que no devuelve nada
+VTABLE = Ty("vtable")  # Tabla de métodos de un objeto (`x = vtable obj`)
+UNKNOWN = Ty("unknown")  # El parser no pudo deducirlo
 
 
 def array_of(elem: Optional[Ty]) -> Ty:
