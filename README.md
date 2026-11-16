@@ -242,6 +242,13 @@ TAC + tabla de símbolos
 MIPS crudo ──peephole.optimize──▶ MIPS final
 ```
 
+**Asignación de registros** (`src/asm/regalloc.py`, algoritmo getReg del libro del dragón): cada variable y temporal
+tiene una casa fija en memoria y los `$t0-$t9` (y `$f` para floats) solo guardan una copia mientras se usa. Para un
+resultado se prefiere el registro que ya tiene el valor, luego el de un operando que murió, luego uno libre y si no
+queda ninguno se derrama a memoria el valor cuyo siguiente uso está más lejos. Todo lo sucio se guarda antes de cada
+salto y `jal`. Explicación y traza en [workspace/MIPS.md](workspace/MIPS.md) §5; se ve en la pestaña **registros** del
+IDE con `14-registros-valido.cps`.
+
 La mirilla tiene un demo por regla en `workspace/input/comp-mips/17-mirilla-<regla>-valido.cps`
 (8 de las 10; `move_redundante` y `guardar_tras_cargar` son redes de seguridad que el
 generador nunca activa). Se prueban en `src/tests/asm/test_asm_peephole_demos.py`.
