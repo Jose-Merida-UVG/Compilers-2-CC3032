@@ -1,0 +1,10 @@
+let entero: integer = 7;
+let decimal: float = 2.5;
+let activo: boolean = true;
+let texto: string = "hola";
+const LIMITE: integer = 12;
+print(entero);
+print(decimal);
+print(activo);
+print(texto);
+print(LIMITE);

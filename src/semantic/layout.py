@@ -97,8 +97,14 @@ class _Area:
 
 
 class _Layout:
-    def __init__(self, global_scope: Scope, max_temps: Optional[Callable[[str], int]]):
+    def __init__(
+        self,
+        global_scope: Scope,
+        max_temps: Optional[Callable[[str], int]],
+        tac_name: Optional[Callable[[Symbol], str]] = None,
+    ):
         self.max_temps = max_temps
+        self.tac_name = tac_name
         # ClassType.members es el mismo dict que los símbolos del ámbito de la
         # clase: su id lleva de un ClassType a su ámbito
         self.class_scopes: dict[int, Scope] = {}
@@ -132,18 +138,25 @@ class _Layout:
             else:
                 self.walk(child, area, global_data)
 
-    @staticmethod
-    def _set_label(symbol: Symbol, scope: Scope) -> None:
+    def _set_label(self, symbol: Symbol, scope: Scope) -> None:
         if symbol.kind is SymbolKind.FUNCTION:
             owner = scope.owner if scope.kind is ScopeKind.CLASS else None
-            symbol.label = f"{owner}.{symbol.name}" if owner else symbol.name
+            if owner:
+                symbol.label = f"{owner}.{symbol.name}"
+            else:
+                # El generador de TAC distingue funciones anidadas con el mismo nombre
+                symbol.label = self.tac_name(symbol) if self.tac_name else symbol.name
         elif symbol.kind is SymbolKind.CLASS:
             symbol.label = symbol.name
 
     def function(self, scope: Scope, enclosing: Scope) -> None:
         is_method = enclosing.kind is ScopeKind.CLASS
         name = scope.owner or "?"
-        label = f"{enclosing.owner}.{name}" if is_method else name
+        declared = enclosing.symbols.get(name)
+        if is_method:
+            label = f"{enclosing.owner}.{name}"
+        else:
+            label = declared.label if declared is not None and declared.label else name
 
         params = _Area(WORD if is_method else 0)  # `this` ocupa el offset 0
         for symbol in scope.symbols.values():
@@ -293,7 +306,7 @@ def assign_layout(
     variables son globales, así que solo guarda temporales y ra/fp).
     `tac_name` (el `name_of` del generador) da el nombre de cada símbolo en el
     TAC, que difiere del original cuando hay sombreado (`x_1`)."""
-    layout = _Layout(global_scope, max_temps)
+    layout = _Layout(global_scope, max_temps, tac_name)
     layout.walk(global_scope, _Area(), global_data=True)
     global_scope.frame = layout._frame("__main", 0, 0)
     if tac_name is not None:

@@ -1,6 +1,6 @@
 """Selectores mínimos de PRUEBA para ejercitar el driver (no son los reales).
 
-Siguen el contrato (docs/proyecto3/01-contrato.md §2.3 y §4) y sirven de
+Siguen la secuencia de llamada y las reglas del asignador, y sirven de
 ejemplo de cómo un selector usa `regs.use` / `regs.def_` / `regs.flush`. Los
 selectores reales son `sel_ops.py`, `sel_control.py`, `sel_calls.py`…
 """

@@ -4,8 +4,13 @@ Shared by the CLI (main.py) and the HTTP backend (server.py) so both stay in
 sync — there's exactly one place that knows how to lex/parse a Compiscript
 source and turn the result into errors + a parse tree.
 """
+from __future__ import annotations
+
+from asm.generator import generate_asm
+from asm.peephole import optimize
+
 from antlr4 import FileStream, InputStream, CommonTokenStream
-from antlr4.tree.Tree import TerminalNode
+from antlr4.tree.Tree import TerminalNodeImpl
 
 from CompiscriptLexer import CompiscriptLexer
 from CompiscriptParser import CompiscriptParser
@@ -14,6 +19,25 @@ from semantic.checker import SemanticChecker
 from semantic.layout import assign_layout
 from semantic.symbols import Scope
 from tac.generator import TACGenerator
+
+def _asm_instruction_count(lines: list[str]) -> int:
+    """Cuenta instrucciones en .text, excluyendo comentarios y directivas."""
+    count = 0
+    in_text = False
+    for line in lines:
+        text = line.split("#", 1)[0].strip()
+        if text.startswith(".text"):
+            in_text = True
+        elif text.startswith(".data"):
+            in_text = False
+        if not in_text or not text or text.startswith("."):
+            continue
+        if ":" in text:
+            text = text.split(":", 1)[1].strip()
+        if text and not text.startswith("."):
+            count += 1
+    return count
+
 
 SUCCESS_MESSAGE = (
     "El archivo fue analizado correctamente. "
@@ -24,7 +48,7 @@ SUCCESS_MESSAGE = (
 def _tree_to_dict(node, rule_names: list[str]) -> dict:
     """Convert an ANTLR parse tree node into a plain dict tree, JSON-friendly
     for the frontend's parse-tree viewer."""
-    if isinstance(node, TerminalNode):
+    if isinstance(node, TerminalNodeImpl):
         return {"label": node.getText(), "isTerminal": True, "children": []}
     name = rule_names[node.getRuleIndex()]
     return {
@@ -49,7 +73,6 @@ def _tac_stats(tac: list[str], generator: TACGenerator, global_scope: Scope) -> 
         "temps": _frame_temps(global_scope),
         "functions": sum(1 for line in tac if line.startswith("func ")),
     }
-
 
 def analyze(input_stream: InputStream) -> dict:
     """Analiza un fuente Compiscript: léxico, sintaxis, semántica y, sin
@@ -94,6 +117,7 @@ def analyze(input_stream: InputStream) -> dict:
     symbol_table_json = None
     tac = None
     tac_stats = None
+    asm = asm_raw = asm_stats = activation = regalloc = None
     if not errors:
         checker = SemanticChecker()
         semantic_errors = checker.check(tree)
@@ -118,17 +142,43 @@ def analyze(input_stream: InputStream) -> dict:
         if tac is not None and generator is not None:
             tac_stats = _tac_stats(tac, generator, global_scope)
 
+    if not errors and tac is not None and symbol_table_json is not None:
+        try:
+            # La única entrada de P3 es TAC textual + JSON de símbolos.
+            generated = generate_asm(tac, symbol_table_json)
+            raw = list(generated.lines)
+            optimized, changes = optimize(list(raw))
+            stats = {
+                "instructions_raw": _asm_instruction_count(raw),
+                "instructions": _asm_instruction_count(optimized),
+                "peephole": changes,
+            }
+            # Publicar resultados solamente cuando toda la fase termina.
+            asm_raw = raw
+            asm = optimized
+            asm_stats = stats
+            activation = generated.activation
+            regalloc = generated.regalloc_steps
+        except Exception as exc:
+            errors.append(f"Error interno al generar el ensamblador: {exc}")
+            tac = tac_stats = None
+            asm = asm_raw = asm_stats = activation = None
+
     if errors:
         n = len(errors)
         noun = "error" if n == 1 else "errores"
         status_message = (
             f"Se encontraron {n} {noun} durante el análisis. "
-            "No se generó código intermedio."
+            "No se generó código intermedio ni ensamblador."
         )
     else:
+        # Sin errores el TAC y el ensamblador existen: si hubieran fallado,
+        # arriba se habría agregado un error.
+        assert tac_stats is not None and asm_stats is not None
         status_message = (
             f"{SUCCESS_MESSAGE} "
-            f"Código intermedio generado ({tac_stats['instructions']} instrucciones)."
+            f"Código intermedio generado ({tac_stats['instructions']} instrucciones). "
+            f"Ensamblador generado ({asm_stats['instructions']} instrucciones)."
         )
  
     return {
@@ -138,9 +188,15 @@ def analyze(input_stream: InputStream) -> dict:
         "symbol_table_json": symbol_table_json,
         "tac": tac,
         "tac_stats": tac_stats,
+        "asm": asm,
+        "asm_raw": asm_raw,
+        "asm_stats": asm_stats,
+        "activation": activation,
+        "regalloc": regalloc,
     }
 
 
 def analyze_file(path: str) -> dict:
     """Lex + parse a Compiscript source file on disk."""
     return analyze(FileStream(path, encoding="utf-8"))
+

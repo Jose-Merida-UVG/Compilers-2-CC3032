@@ -138,6 +138,18 @@ export interface ActivationData {
   tree: ActivationTreeNode;
 }
 
+/** Una instrucción TAC y lo que decidió el asignador de registros al traducirla. */
+export interface RegallocStep {
+  func: string;
+  line: string;
+  /** Cada valor pedido: `reason` es "carga", "en registro", "libre", "reuso", "mismo registro", "spill" o "flush". */
+  decisions: { op: string; reg: string; reason: string }[];
+  /** Descriptor de registros al terminar la instrucción: registro -> valor. */
+  regs: Record<string, string>;
+  /** Registros con un valor más nuevo que su casa en memoria. */
+  dirty: string[];
+}
+
 export interface RunOutput {
   /** Terminal-ready lines: errors, then the status message. */
   lines: string[];
@@ -161,6 +173,27 @@ export interface RunOutput {
   asmStats?: AsmStats | null;
   /** Marcos y árbol de activación. */
   activation?: ActivationData | null;
+  /** Decisiones del asignador de registros, una entrada por instrucción TAC. */
+  regalloc?: RegallocStep[] | null;
+}
+
+/** Resultado de ejecutar el programa en MARS (POST /api/exec). */
+export interface ExecOutput {
+  /** Errores de compilación; con alguno no se ejecuta nada. */
+  errors: string[];
+  statusMessage: string;
+  /** Se ejecutó (false con errores o si falta MARS). */
+  ran: boolean;
+  /** false si falta java o Mars4_5.jar en el servidor. */
+  available: boolean;
+  /** Lo que imprimió el programa. */
+  output: string;
+  stderr: string;
+  exitCode: number | null;
+  /** Pasó del límite de tiempo y se cortó. */
+  timedOut: boolean;
+  /** Límite en segundos. */
+  timeout: number;
 }
 
 /** Lo que muestra la pestaña de ensamblador. */
@@ -197,6 +230,8 @@ export interface EditorTab {
   asmData?: AsmData;
   /** Tras Run: registros y árbol de activación (ActivationViewer). */
   activationData?: ActivationData;
+  /** Tras Run: decisiones del asignador de registros (RegallocViewer). */
+  regallocData?: RegallocStep[];
 }
 
 /** Error del análisis y su ubicación en el archivo fuente. */

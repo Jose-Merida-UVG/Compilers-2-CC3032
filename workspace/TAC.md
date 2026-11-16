@@ -2,7 +2,7 @@
 
 Resumen de cómo el compilador pasa de Compiscript a código intermedio y qué datos
 deja listos para el código objeto (MIPS). El detalle completo está en `docs/tac.md`.
-Para verlo en acción: abrir `input/comp-tac/13-recorrido-completo.cps`, **▶ Compilar**
+Para verlo en acción: abrir `input/comp-mips/13-recorrido-completo.cps`, **▶ Compilar**
 y mirar las pestañas `tac` y `symbols`.
 
 ## 1. El flujo
@@ -61,7 +61,7 @@ necesita (arreglos, objetos, `vtable`, `try`).
 ### Cómo se traduce cada construcción
 
 Todos los ejemplos son salida real del compilador (fuente a la izquierda, TAC a la
-derecha). Cada uno tiene su demo en `input/comp-tac/`.
+derecha). Cada uno tiene su demo en `input/comp-mips/`.
 
 **Declaraciones y sombreado.** Una declaración sin valor inicial no emite nada. Si dos
 variables con el mismo nombre conviven en una función, la segunda se renombra:
@@ -346,5 +346,5 @@ se decide al ejecutar (según el objeto real). Eso es el despacho dinámico.
 * Pestaña **tac**: las instrucciones de cada función; `__main` al final.
 * Pestaña **symbols**: el frame de cada función (chips con los tamaños) y el layout de
   cada clase (`objeto: N B`, campos con su offset, métodos).
-* Los demos `01` a `12` en `input/comp-tac/` son uno por punto de la rúbrica, con su
+* Los demos `01` a `12` en `input/comp-mips/` son uno por punto de la rúbrica, con su
   versión inválida; el `13` junta todo.

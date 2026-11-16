@@ -6,6 +6,13 @@ interface Props {
   data: ActivationData;
 }
 
+/** El backend manda `{}` mientras no existe el generador de activación: eso no se dibuja. */
+export function isValidActivation(a: unknown): a is ActivationData {
+  const data = a as Partial<ActivationData> | null | undefined;
+  return !!data && typeof data.frames === "object" && data.frames !== null
+    && Object.keys(data.frames).length > 0 && !!data.tree && typeof data.tree.label === "string";
+}
+
 /** Árbol de activación (quién llama a quién) y registro de activación (pila) de cada función. */
 export default function ActivationViewer({ data }: Props) {
   const labels = Object.keys(data.frames);

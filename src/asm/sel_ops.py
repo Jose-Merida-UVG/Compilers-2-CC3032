@@ -1,17 +1,8 @@
-"""OpsSel: operaciones aritméticas, lógicas, comparaciones y `print` (Nes).
+"""Selector de operaciones: aritmética, lógica, comparaciones, strings, `print`.
 
-Contrato: docs/proyecto3/01-contrato.md §4 y §6. Solo se usa la API del
-asignador (`regs.use`, `regs.def_`, `regs.scratch`, `regs.into`): ningún
-selector nombra registros para valores. Los registros fijos que sí aparecen
-(`$a0`, `$a1`, `$v0`, `$f12`) son los reservados del ABI del runtime.
-
-Regla de oro: `regs.def_()` puede devolver el registro de un fuente que ya
-murió, así que primero se leen los fuentes (`use`) y el destino se pide al
-final; en cada instrucción el destino solo se escribe en la última.
-
-Las comparaciones como valor usan solo instrucciones reales de MIPS (`slt`,
-`sltu`, `sltiu`, `xori`, `subu`), sin pseudoinstrucciones de MARS cuya
-expansión podría pisar un fuente si el destino coincide con él.
+Primero se leen los fuentes (`regs.use`) y al final se pide el destino
+(`regs.def_`), porque `def_` puede devolver el registro de un fuente muerto.
+Los registros fijos (`$a0`, `$a1`, `$v0`, `$f12`) son los del runtime.
 """
 
 from __future__ import annotations
@@ -25,7 +16,7 @@ COMPARISONS = ("==", "!=", "<", "<=", ">", ">=")
 
 
 def is_imm(op: Operand) -> bool:
-    """Constante entera/booleana que cabe en un inmediato de 16 bits."""
+    """¿Es una constante entera que cabe en un inmediato de 16 bits?"""
     return (
         op.is_const
         and op.ty.kind in ("int", "bool")
@@ -41,12 +32,7 @@ def as_float_operand(op: Operand) -> Operand:
 
 
 def as_float(gen, op: Operand) -> str:
-    """Registro float con el valor de `op`, convirtiendo un entero si hace falta.
-
-    Lo comparten `sel_ops`, `sel_control`, `sel_arrays` y `sel_calls`: un
-    entero donde se espera un float (constante o variable) se convierte aquí
-    con `mtc1` + `cvt.s.w`.
-    """
+    """Registro float con el valor de `op`, convirtiendo un entero si hace falta."""
     regs, asm = gen.regs, gen.a
     if op.is_const:
         return regs.use(op if op.ty.kind == "float" else as_float_operand(op))
@@ -60,11 +46,12 @@ def as_float(gen, op: Operand) -> str:
 
 
 def is_str(op: Operand) -> bool:
+    """¿El operando es un string?"""
     return op.ty.kind == "str"
 
 
 def pow2_shift(op: Operand):
-    """k si `op` es la constante 2**k (k >= 1), si no None."""
+    """El `k` de una constante `2**k` (con k >= 1), o `None` si no lo es."""
     if op.is_const and op.ty.kind == "int" and isinstance(op.value, int):
         v = op.value
         if v >= 2 and v & (v - 1) == 0:
@@ -73,16 +60,18 @@ def pow2_shift(op: Operand):
 
 
 class OpsSel:
-    # ── unarios ────────────────────────────────────────────────────────────
+    """Selector de operaciones."""
+
     def sel_Unary(self, ins: Unary) -> None:
+        """Operadores de un solo operando: `itof` (entero a float), `-` y `!`."""
         regs, asm = self.regs, self.a
         if ins.op == "itof":
             if not ins.src.is_const and not ins.src.is_float:
                 ri = regs.use(ins.src)
-                rd = regs.def_(ins.dst)  # float: otra clase, no choca con `ri`
+                rd = regs.def_(ins.dst)  # Float: otra clase, no choca con `ri`
                 asm.ins(f"mtc1  {ri}, {rd}")
                 asm.ins(f"cvt.s.w {rd}, {rd}")
-            else:  # constante o ya float: solo se copia
+            else:  # Constante o ya float: solo se copia
                 rf = as_float(self, ins.src)
                 rd = regs.def_(ins.dst)
                 if rd != rf:
@@ -103,8 +92,8 @@ class OpsSel:
         else:
             raise NotImplementedError(f"operador unario {ins.op!r}: {ins.line!r}")
 
-    # ── binarios ───────────────────────────────────────────────────────────
     def sel_Binary(self, ins: Binary) -> None:
+        """Reparte una operación binaria según los tipos de sus operandos."""
         a, b, op = ins.a, ins.b, ins.op
         if op in COMPARISONS:
             if is_str(a) and is_str(b):
@@ -118,12 +107,12 @@ class OpsSel:
             return self._float_arith(ins)
         return self._int_arith(ins)
 
-    # -- enteros --------------------------------------------------------------
     def _int_arith(self, ins: Binary) -> None:
+        """`+ - * / %` sobre enteros."""
         regs, asm = self.regs, self.a
         a, b, op = ins.a, ins.b, ins.op
         if op in ("+", "*") and a.is_const and not b.is_const:
-            a, b = b, a  # conmutativos: la constante a la derecha
+            a, b = b, a  # Conmutativos: la constante a la derecha
         ra = regs.use(a)
 
         if op in ("+", "-") and is_imm(b):
@@ -155,6 +144,7 @@ class OpsSel:
             raise NotImplementedError(f"operador {op!r}: {ins.line!r}")
 
     def _int_compare_value(self, ins: Binary) -> None:
+        """Comparación entera cuyo resultado se guarda como valor (0 o 1)."""
         regs, asm = self.regs, self.a
         ra, rb = regs.use(ins.a), regs.use(ins.b)
         rd = regs.def_(ins.dst)
@@ -176,8 +166,8 @@ class OpsSel:
             asm.ins(f"subu  {rd}, {ra}, {rb}")
             asm.ins(f"sltu  {rd}, $zero, {rd}")
 
-    # -- floats ----------------------------------------------------------------
     def _float_arith(self, ins: Binary) -> None:
+        """`+ - * /` sobre floats (un entero se convierte antes con `as_float`)."""
         regs, asm = self.regs, self.a
         if ins.op not in FLOAT_ARITH:
             raise NotImplementedError(f"operador {ins.op!r} sobre floats: {ins.line!r}")
@@ -186,6 +176,7 @@ class OpsSel:
         asm.ins(f"{FLOAT_ARITH[ins.op]} {rd}, {fa}, {fb}")
 
     def _float_compare_value(self, ins: Binary) -> None:
+        """Comparación de floats como valor."""
         regs, asm = self.regs, self.a
         fa, fb = as_float(self, ins.a), as_float(self, ins.b)
         rd = regs.def_(ins.dst)
@@ -197,8 +188,8 @@ class OpsSel:
         asm.ins(f"li    {rd}, {0 if true_when_set else 1}")
         asm.label(end)
 
-    # -- strings ---------------------------------------------------------------
     def _concat(self, ins: Binary) -> None:
+        """`a + b` con strings: llama a `rt_str_concat` (runtime.py)."""
         regs, asm = self.regs, self.a
         regs.into("$a0", ins.a)
         regs.into("$a1", ins.b)
@@ -207,6 +198,7 @@ class OpsSel:
         asm.ins(f"move  {rd}, $v0")
 
     def _str_equal_value(self, ins: Binary) -> None:
+        """`==` o `!=` entre strings: compara el contenido con `rt_str_eq`."""
         regs, asm = self.regs, self.a
         regs.into("$a0", ins.a)
         regs.into("$a1", ins.b)
@@ -217,8 +209,8 @@ class OpsSel:
         else:
             asm.ins(f"xori  {rd}, $v0, 1")
 
-    # ── print ──────────────────────────────────────────────────────────────
     def sel_Print(self, ins: Print) -> None:
+        """`print x`."""
         regs, asm = self.regs, self.a
         kind = ins.src.ty.kind
         if kind == "float":
@@ -230,17 +222,13 @@ class OpsSel:
         elif kind == "str":
             regs.into("$a0", ins.src)
             asm.ins("jal   rt_print_str")
-        else:  # int y, por omisión, cualquier otro valor
+        else:  # Int y, por omisión, cualquier otro valor
             regs.into("$a0", ins.src)
             asm.ins("jal   rt_print_int")
 
 
 def float_condition(rel: str, fa: str, fb: str):
-    """(instrucción de comparación, x, y, verdad_cuando_bandera_activa).
-
-    MIPS solo compara `<`, `<=`, `==` en la FPU; `>` y `>=` intercambian los
-    operandos y `!=` es la negación de `==`.
-    """
+    """Traduce una comparación de floats a la FPU de MIPS."""
     if rel == "<":
         return "c.lt.s", fa, fb, True
     if rel == "<=":

@@ -139,6 +139,19 @@
   background: rgba(16, 217, 160, 0.22);
   border-color: rgba(16, 217, 160, 0.45);
 }
+.toolbar-pill--exec {
+  color: #93c5fd;
+  background: rgba(59, 130, 246, 0.12);
+  border-color: rgba(59, 130, 246, 0.25);
+}
+.toolbar-pill--exec:hover:not(:disabled) {
+  background: rgba(59, 130, 246, 0.22);
+  border-color: rgba(59, 130, 246, 0.45);
+}
+.toolbar-pill--exec:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
 .toolbar-pill--parser {
   color: #c4b5fd;
   background: rgba(139, 92, 246, 0.12);

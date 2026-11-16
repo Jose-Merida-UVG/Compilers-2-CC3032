@@ -4,14 +4,14 @@ Serves a small file-CRUD API over a `workspace/` directory (repo root) plus a
 `/api/run` endpoint that lexes, parses and semantically analyses a `.cps`
 file (see compiler.py) and returns errors, the parse tree and the symbol
 table for the frontend's viewers, plus the three-address code (TAC) when the
-program has no errors. Each run also persists `.out`, `.tree`, `.symbols` and
-`.tac` under `workspace/output/<stem>/`.
+program has no errors, and the MIPS32 assembly (plus activation records/tree)
+generated from that TAC. Each run also persists `.out`, `.tree`, `.symbols`,
+`.tac` and `.s` under `workspace/output/<stem>/`.
 
 Runs with:
     PYTHONPATH=generated:src uvicorn server:app --app-dir src --reload --port 8080
 """
 
-import json
 import shutil
 from pathlib import Path
 
@@ -21,6 +21,7 @@ from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 
 from compiler import analyze_file
+from run_mips import TIMEOUT, execute
 
 ROOT = Path(__file__).resolve().parent.parent
 WORKSPACE = (ROOT / "workspace").resolve()
@@ -158,6 +159,34 @@ def create_directory(body: DirCreate):
 # run = lex + parse
 
 
+@app.post("/api/exec")
+def exec_file(body: RunBody):
+    """Compila el archivo y ejecuta el MIPS en MARS. No guarda nada en output/.
+
+    `ran` es False con errores de compilación (`errors`) o si falta MARS
+    (`available` False); `timedOut` si el programa no terminó en TIMEOUT s."""
+    p = resolve(body.inputPath)
+    if not p.is_file():
+        raise HTTPException(status_code=404, detail="File not found")
+
+    result = analyze_file(str(p))
+    reply = {
+        "errors": result["errors"],
+        "statusMessage": result["status_message"],
+        "ran": False,
+        "available": True,
+        "output": "",
+        "stderr": "",
+        "exitCode": None,
+        "timedOut": False,
+        "timeout": TIMEOUT,
+    }
+    if result["asm"] is None:
+        return reply
+    run = execute(result["asm"])
+    return {**reply, **run, "ran": run["available"]}
+
+
 @app.post("/api/run")
 def run_file(body: RunBody):
     p = resolve(body.inputPath)
@@ -170,28 +199,21 @@ def run_file(body: RunBody):
 
     run_dir = WORKSPACE / "output" / p.stem
     run_dir.mkdir(parents=True, exist_ok=True)
-    (run_dir / f"{p.name}.out").write_text("\n".join(lines), encoding="utf-8")
-    (run_dir / f"{p.name}.tree").write_text(
-        json.dumps(result["tree_json"], ensure_ascii=False, indent=2), encoding="utf-8"
-    )
-    # Symbol table only exists when semantic analysis actually ran (no
-    # lexical/syntax errors -- see compiler.analyze). A stale .symbols from a
-    # previous clean run would be misleading, so it's removed in that case.
-    symbols_path = run_dir / f"{p.name}.symbols"
-    if result["symbol_table_json"] is not None:
-        symbols_path.write_text(
-            json.dumps(result["symbol_table_json"], ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-    elif symbols_path.exists():
-        symbols_path.unlink()
-
+    # Solo se guarda el código generado: el TAC y el ensamblador.
     # Con errores no hay TAC y se borra el de una corrida anterior
     tac_path = run_dir / f"{p.name}.tac"
     if result["tac"] is not None:
         tac_path.write_text("\n".join(result["tac"]) + "\n", encoding="utf-8")
     elif tac_path.exists():
         tac_path.unlink()
+
+    # Igual con el ensamblador (R9): solo existe sin errores; si no, se borra el
+    # de una corrida anterior para no mostrar uno viejo. Nombre: <archivo>.cps.s
+    asm_path = run_dir / f"{p.name}.s"
+    if result["asm"] is not None:
+        asm_path.write_text("\n".join(result["asm"]) + "\n", encoding="utf-8")
+    elif asm_path.exists():
+        asm_path.unlink()
 
     return {
         "lines": lines,
@@ -201,4 +223,10 @@ def run_file(body: RunBody):
         "symbolTable": result["symbol_table_json"],
         "tac": result["tac"],
         "tacStats": result["tac_stats"],
+        # null con errores (el IDE distingue null de "ausente")
+        "asm": result["asm"],
+        "asmRaw": result["asm_raw"],
+        "asmStats": result["asm_stats"],
+        "activation": result["activation"],
+        "regalloc": result["regalloc"],
     }
