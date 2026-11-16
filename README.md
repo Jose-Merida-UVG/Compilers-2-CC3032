@@ -1,4 +1,4 @@
-# Compiscript — Compilador: análisis y código intermedio (TAC)
+# Compiscript — Compilador: análisis, código intermedio (TAC) y MIPS
 
 **Demo (Lab 1 — léxico/sintáctico):** https://youtu.be/IowDshTJ0TI
 
@@ -35,8 +35,9 @@ Pipeline: `fuente → Lexer → Parser → SemanticChecker → TACGenerator → 
   intermedio (instrucciones, justificación, ejemplos fuente → TAC), el algoritmo
   de reciclaje de temporales, la tabla de símbolos para el código objeto, el
   generador, las pruebas y la autoría.
-- [docs/mips.md](docs/mips.md): Proyecto 3, con el IR, el modelo de memoria, el
-  asignador de registros, los selectores de instrucciones y el runtime.
+- [Código objeto (MIPS)](#código-objeto-mips), más abajo en este README: Proyecto 3, con el
+  IR, el modelo de memoria, el asignador de registros, los selectores, el runtime, la
+  mirilla y un ejemplo recorrido.
 - [docs/enunciados/](docs/enunciados/): definición del lenguaje y requisitos
   del P1.
 
@@ -48,7 +49,7 @@ Pipeline: `fuente → Lexer → Parser → SemanticChecker → TACGenerator → 
 - `src/error_listener.py`: listener de errores de ANTLR que da formato en español a los errores léxicos y sintácticos y permite seguir tras el primer error.
 - `src/semantic/`: análisis semántico. `types.py` (sistema de tipos), `symbols.py` (tabla de símbolos y árbol de ámbitos), `errors.py`, `checker.py` (el visitor `SemanticChecker`, con todas las reglas; también anota cada nodo con su tipo y símbolo para la fase de TAC) y `layout.py` (tamaños, offsets, direcciones, registros de activación y layout de clases).
 - `src/tac/`: generación de código intermedio. `generator.py` (`TACGenerator`, une los cuatro mixins), `gen_core.py` (declaraciones, expresiones, condiciones, arreglos), `gen_control.py` (if, bucles, switch, try/catch), `gen_functions.py` (funciones, llamadas, return), `gen_classes.py` (clases, objetos, herencia), `emitter.py` (emisión de instrucciones y reciclaje de temporales) e `instructions.py` (convenciones de formato).
-- `src/asm/`: generación de MIPS. `ir/` (el IR: tipos, operandos e instrucciones), `tac_parser.py` (TAC texto → IR), `frames.py` (marcos de activación), `regalloc.py` (asignador de registros), `sel_*.py` (un selector por instrucción), `runtime.py` (rutinas de impresión, memoria y strings), `emitter.py` y `generator.py` (el driver). Ver [docs/mips.md](docs/mips.md).
+- `src/asm/`: generación de MIPS. `ir/` (el IR: tipos, operandos e instrucciones), `tac_parser.py` (TAC texto → IR), `frames.py` (marcos de activación), `regalloc.py` (asignador de registros), `sel_*.py` (un selector por instrucción), `runtime.py`/`runtime_exc.py` (rutinas y excepciones), `peephole.py` (mirilla), `activation.py` (datos del IDE), `emitter.py` y `generator.py` (el driver). Ver [Código objeto (MIPS)](#código-objeto-mips).
 - `src/main.py`: punto de entrada del CLI (`make cli`).
 - `src/server.py`: backend FastAPI, con una API de archivos sobre `workspace/` y `/api/run`.
 - `src/tests/`: pruebas automáticas (`make test`). `src/tests/semantic/<categoría>/` tiene una batería de casos `.cps` por categoría de regla semántica, y `src/tests/tac/<área>/` tiene casos válidos e inválidos por cada punto de la rúbrica de TAC (los válidos deben compilar y generar TAC).
@@ -212,6 +213,337 @@ sale en el panel OUTPUT, y un programa que no termina se corta a los 10 s. Neces
 make clean       # borra los directorios __pycache__ y workspace/output/
 make distclean   # clean, y además borra .venv
 ```
+
+## Código objeto (MIPS)
+
+Traduce el TAC (texto) y la tabla de símbolos del P2 a ensamblador MIPS32 para
+MARS/SPIM. Vive en `src/asm/`; la entrada es `generate_asm(tac, symbol_table)`
+(`generator.py`) y la llama `compiler.analyze()` solo si no hubo ningún error.
+Si el generador falla, el error se reporta como "Error interno al generar el
+ensamblador" y no se publica ni TAC ni MIPS.
+
+### Flujo
+
+```
+TAC (texto) + tabla de símbolos (JSON)
+   │  tac_parser.parse_tac         texto → objetos del IR (Program)
+   ▼
+   │  por cada función:
+   │    split_blocks + block_live_out    bloques básicos y temporales vivos
+   │    por cada instrucción:  generator._dispatch  →  sel_<Clase>(ins)
+   ▼                                   │ el selector pide registros a RegAlloc
+MIPS crudo + datos de activación       ▼ y escribe con AsmEmitter
+   │  peephole.optimize (opcional)
+   ▼
+MIPS final
+```
+
+### Orden de dependencias (de abajo hacia arriba)
+
+Cada nivel solo importa de los anteriores.
+
+| Nivel | Archivo | Rol |
+|---|---|---|
+| 0 | `ir/` | El vocabulario: tipos, operandos e instrucciones como objetos (IR). |
+| 0 | `emitter.py` | Acumula `.text` y `.data`: `ins`, `label`, `string`, `float_`, `new_label`; nombres seguros (`f_Animal__hablar`, `vt_Animal`). |
+| 1 | `tac_parser.py` | TAC texto → `Program` del IR; resuelve tipos, offsets de campos y tamaños con la tabla de símbolos. |
+| 1 | `frames.py` | Dónde vive cada valor (`home`) y el prólogo/epílogo de cada función. |
+| 1 | `regalloc.py` | `getReg`: qué valor ocupa qué registro en cada momento (asignador). |
+| 2 | `sel_*.py` | Selectores: un método por clase de instrucción (selectores). |
+| 2 | `runtime.py` | Rutinas en MIPS: `print`, `rt_alloc`, arreglos, strings. |
+| 3 | `generator.py` | El driver: recorre el IR y despacha a los selectores. |
+
+### El IR (`ir/`)
+
+Cada línea del TAC es un objeto. Tres capas:
+
+- **`Ty`** (`types.py`): tipo estático de un valor. Elige la instrucción MIPS:
+  `addu` / `add.s` / `rt_str_concat`, `lw` / `lwc1` / `lb`.
+
+  | `kind` | Valor | En memoria |
+  |---|---|---|
+  | `int`, `bool`, `float` | escalares | palabra (el `bool` ocupa 1 byte en su casa; el `float` va en registros `$f`) |
+  | `str` | string | puntero a `.asciiz` |
+  | `array` (`elem`) | arreglo | puntero a `[longitud][e0][e1]…` |
+  | `obj` (`cls`) | instancia | puntero a `[tabla de métodos][campo0]…` |
+  | `vtable` | tabla de métodos de un objeto | puntero a la lista de métodos |
+  | `null`, `void`, `unknown` | marcadores | `null` es 0 |
+
+- **`Operand`** (`operands.py`): un valor concreto del TAC. Tiene `text` (tal
+  cual en el TAC; también es su identidad en el asignador, `key`), `kind`
+  (`var` con casa en memoria, `temp` que muere tras su último uso, `const` sin
+  casa), `ty`, y `value` solo para constantes (`None` en var/temp; `null` también
+  es `None`, así que se revisa `is_const` primero).
+- **`Instr`** (`base.py` y los demás módulos): una clase por instrucción del TAC,
+  con operandos como campos. Cada una expone `reads()` y `writes()`, que el
+  asignador usa para calcular el siguiente uso; `_vals` descarta constantes y
+  `None`. `line` guarda el TAC original, que se emite como comentario.
+
+Ejemplo: `$t1 = b * 2` →
+`Binary(dst=$t1:temp:int, a=b:var:int, op="*", b=2:const:int, line="$t1 = b * 2")`.
+
+No toda línea es una instrucción: los `param` se pliegan en el `Call` que
+sigue, y `func`/`class`/`vtable` forman las unidades `FuncUnit`, `ClassUnit` y
+`Program` (`units.py`).
+
+| Módulo | Contenido |
+|---|---|
+| `types.py` | `Ty`, `INT`, `FLOAT`, …, `array_of`, `obj_of` |
+| `operands.py` | `Operand` |
+| `base.py` | `Instr`, `_vals` |
+| `control.py` | `Label`, `Goto`, `CondJump`, `Return`, `TERMINATORS` |
+| `values.py` | `Copy`, `Unary`, `Binary`, `Print` |
+| `arrays.py` | `NewArray`, `Len`, `IndexLoad`, `IndexStore` |
+| `objects.py` | `FieldLoad`, `FieldStore`, `New`, `VTableLoad` |
+| `calls.py` | `Call`, `CallVirt` |
+| `exceptions.py` | `Try`, `EndTry`, `Catch` |
+| `units.py` | `FuncUnit`, `ClassUnit`, `Program` |
+
+`ir/__init__.py` reexporta todo, así que se importa siempre `from asm.ir import …`.
+
+### Modelo de memoria
+
+Registro de activación (`frames.py`); la pila crece hacia abajo:
+
+```
+fp+8+4*i   argumento i (i = 0 es `this` en un método)
+fp+4       $ra guardado
+fp+0       $fp del llamador            <- $fp apunta aquí
+fp-4 …     locales
+debajo     temporales $t1, $t2, … (4 bytes cada uno)
+```
+
+- Toda variable y temporal tiene una **casa** fija en memoria, `N($fp)` o
+  `N($gp)` (globales); sale de las direcciones que calcula `semantic/layout.py`.
+  Nada se direcciona relativo a `$sp`, así que empujar argumentos no invalida
+  casas.
+- **Llamada**: `addiu $sp,-4n`, `sw` de cada argumento a `4*i($sp)`, `flush`,
+  `jal`, `invalidate`, se libera la pila. Retorno en `$v0` (o `$f0` si es float).
+- **Heap**: `rt_alloc` (`$a0` = bytes, devuelve `$v0`, memoria en cero).
+  Arreglo: `[n][e0]…` con 4 bytes por elemento; la lectura verifica rango y
+  salta a `rt_throw_index`.
+- **Objeto**: `[tabla de métodos][campos]`; los campos empiezan en el offset 4.
+  **Tabla de métodos** (`vt_<Clase>` en `.data`): una palabra por slot con la
+  dirección del método; un método sobrescrito reutiliza el slot del padre. Una
+  llamada a método es `x = vtable obj` (lee la palabra 0), `$t = $t[slot]`
+  (lee el slot, sin cabecera ni verificación de rango) y `callvirt`.
+
+#### Secuencia de llamada y retorno
+
+Estado de la pila para `f(a, b)` (crece hacia abajo; `$fp` fija el marco):
+
+```
+ llamador, antes del jal           dentro de f, tras el prólogo
+ ┌──────────────┐                  ┌──────────────┐
+ │  ...         │                  │  ...         │
+ ├──────────────┤ ← $sp+8   fp+12  │  b           │  argumento 1
+ │  b           │                  │  a           │  fp+8   argumento 0
+ │  a           │ ← $sp     fp+4   │  $ra         │
+ └──────────────┘           fp+0   │  $fp viejo   │ ← $fp
+                                    │  locales     │  fp-4 …
+                                    │  temporales  │
+                                    └──────────────┘ ← $sp
+```
+
+1. **Llamador:** `addiu $sp,-8`; `sw` de cada argumento a `4*i($sp)`; `flush` (todo lo
+   sucio y vivo a su casa); `jal f`; `invalidate`; `addiu $sp,+8`; copia `$v0`/`$f0`.
+2. **Prólogo:** `addiu $sp,-8`; guarda `$ra` y `$fp`; `$fp = $sp`; reserva locales y
+   temporales (`addiu $sp,-alloc`).
+3. **Epílogo:** `$sp = $fp`; restaura `$ra` y `$fp`; `addiu $sp,+8`; `jr $ra`.
+
+El llamado nunca guarda registros: como todo se guarda a su casa antes del `jal`, el
+llamador no espera nada en ellos al volver.
+
+### Asignador de registros (`regalloc.py`)
+
+El algoritmo de Aho §8.6.3: un descriptor de registros (qué valor tiene cada
+uno), uno de direcciones (dónde está cada valor) y el **siguiente uso**
+calculado hacia atrás en cada bloque. Un temporal sin siguiente uso está muerto:
+libera su registro y no se guarda; las variables nunca mueren. Pool: `$t0-$t9` y
+`$f4, $f6, $f8, $f10, $f14, $f16, $f18` (`$f12` queda reservado). Política *caller-saved*: todo lo sucio y vivo se guarda a su
+casa antes de cada salto y de cada `jal`; después de una etiqueta o llamada no se
+confía en ningún registro. Los registros ABI `$a0-$a3`, `$v0`, `$v1`, `$f0`,
+`$f12` y `$at` nunca se entregan: los selectores los usan a mano.
+
+| Método | Qué hace |
+|---|---|
+| `use(op)` | Registro con el valor de `op`; lo carga de su casa si hace falta. |
+| `def_(op)` | Registro para un resultado; puede reutilizar el de un fuente ya muerto. |
+| `scratch()` | Registro anónimo hasta el fin de la instrucción. |
+| `into(reg, op)` | Deja `op` en un registro fijo (`$a0`, `$f12`, …). |
+| `flush()` | Guarda a su casa lo sucio y vivo. |
+| `invalidate()` | Olvida todos los registros (tras `jal`). |
+
+Reglas: pedir los fuentes con `use` antes del destino con `def_` (puede devolver
+el mismo registro que un fuente muerto; `avoid=` lo evita); no nombrar registros
+para valores; las rutinas del runtime solo tocan registros reservados, así que
+se pueden llamar a mitad de una instrucción sin `flush`. Cada decisión queda en
+`regs.trace`.
+
+### Selectores (`sel_*.py`)
+
+Un *selector* decide qué instrucciones MIPS emitir para una instrucción del TAC.
+El driver busca el método `sel_<NombreDeClase>` (`sel_Binary`, `sel_Call`, …) y
+lo llama con el objeto del IR. Un selector típico (`sel_Copy`):
+
+```python
+rs = regs.use(src)
+rd = regs.def_(dst)
+if rd != rs: asm.ins(f"move  {rd}, {rs}")
+```
+
+Los selectores son *mixins*: `AsmGenerator` los junta. Si falta un `sel_X`, el
+driver falla con `falta el selector sel_X`. El driver antepone un `flush` a
+`Return`, `Goto` y `CondJump`, y vacía los registros al entrar a cada bloque.
+
+| Archivo | Instrucciones |
+|---|---|
+| `sel_core.py` | `Copy` |
+| `sel_ops.py` | `Unary`, `Binary`, `Print` (enteros, floats, strings) |
+| `sel_control.py` | `Goto`, `CondJump` |
+| `sel_arrays.py` | `NewArray`, `Len`, `IndexLoad`, `IndexStore` |
+| `sel_calls.py` | `Call`, `Return` |
+| `sel_objects.py` | `New`, `FieldLoad`, `FieldStore`, `VTableLoad`, `CallVirt`, y `emit_vtables`; verifican `null` antes de usar un objeto |
+| `sel_try.py` | `Try`, `EndTry`, `Catch` |
+| `runtime_exc.py` | pila de manejadores, `rt_throw`, `rt_throw_index`, `rt_throw_null` |
+| `peephole.py` | `optimize(lines)`: mirilla (8 reglas) sobre el MIPS ya generado |
+| `activation.py` | `build_activation(program, frames)`: registros de activación y árbol de llamadas para el IDE |
+
+El driver importa con respaldo los módulos que faltan (clase vacía); un programa
+que use una instrucción sin selector falla con el mensaje de arriba.
+
+#### Excepciones
+
+`try L` apila `[dirección de L][$sp][$fp]` en una pila de manejadores en `.data`
+(`rt_try_push`); `endtry` la desapila. `rt_throw` (mensaje en `$a0`) restaura
+`$sp` y `$fp` del manejador de arriba y salta a `L`, donde `catch e` copia el
+mensaje a `e`. Sin manejador imprime `Excepcion no capturada: <mensaje>` y termina
+con código 1. Lanzan: el índice fuera de rango (`indice fuera de rango`) y el
+acceso a un campo o método de `null` (`referencia nula`). No hay que restaurar
+registros al desenrollar porque todo se guarda a su casa antes de cada llamada.
+
+En un programa que usa `try`, `TrySel._dispatch` guarda cada resultado a su casa al
+terminar la instrucción: si algo lanza a mitad de un bloque, el manejador (que
+empieza con los registros vacíos) lee valores al día de memoria.
+
+#### Mirilla (`peephole.py`)
+
+`optimize(lines)` recibe el MIPS ya generado y lo recorre buscando patrones entre
+instrucciones contiguas. Los comentarios `# TAC: ...` y las líneas en blanco se
+saltan; las etiquetas **no**, porque alguien puede saltar a ellas. Repite hasta
+5 pasadas, porque quitar una instrucción puede dejar otro patrón al descubierto, y
+devuelve las líneas nuevas y cuántas veces se aplicó cada regla (el IDE lo muestra).
+
+| Regla | Antes | Después |
+|---|---|---|
+| `move_redundante` | `move $r, $r` | se quita |
+| `salto_a_la_siguiente` | `j L` justo antes de `L:` (puede haber otras etiquetas en medio) | se quita el salto |
+| `carga_tras_guardar` | `sw $r, A` + `lw $r, A` (igual con `swc1`/`lwc1`) | se quita el `lw`; `lb` no, porque extiende el signo |
+| `guardar_tras_cargar` | `lw $r, A` + `sw $r, A` | se quita el `sw`; no aplica si `$r` es la base de `A` (`lw $t0, 0($t0)` cambia la dirección) |
+| `identidad_aritmetica` | `addiu $r,$r,0`, `addu $r,$r,$zero`, `sll $r,$r,0`, `ori $r,$r,0` | se quita (el destino debe ser el mismo registro) |
+| `move_ida_y_vuelta` | `move a, b` + `move b, a` | se quita el segundo |
+| `salto_sobre_salto` | `beq x,y,L1` + `j L2` + `L1:` | `bne x,y,L2` + `L1:` (y `bne` → `beq`); `L1` debe ser el destino del salto condicional |
+| `codigo_muerto` | instrucciones entre un `j`/`jr` y la siguiente etiqueta o directiva | se quitan (nadie puede llegar a ellas) |
+
+Ejemplo (`salto_sobre_salto`, que sale de un `if` cuyo cuerpo termina en `break`):
+
+```
+    beq   $t0, $zero, L1          bne   $t0, $zero, L2
+    j     L2                 →  L1:
+L1:
+```
+
+Ninguna regla cambia lo que hace el programa: `test_asm_peephole.py` prueba cada
+una (y los casos donde no deben aplicar) y que todos los programas válidos de
+`src/tests/asm/` impriman lo mismo con y sin mirilla.
+
+#### Datos del IDE (`activation.py`)
+
+`activation.build_activation` arma los marcos (`FrameInfo.slots()`) y el árbol de
+llamadas desplegado desde `__main`, con las llamadas recursivas y virtuales
+marcadas.
+
+### Por qué *caller-saved* y sin `$s`
+
+El asignador no usa los registros `$s`: antes de cada salto y de cada `jal` guarda a su
+casa todo lo sucio y vivo, y después de una etiqueta o llamada empieza con los registros
+vacíos. Es más simple de demostrar correcto (el estado en memoria siempre está al día en
+los puntos de control) y hace seguro el `try/catch`: `rt_throw` desenrolla la pila sin
+restaurar registros, porque no hay ninguno que restaurar. El costo es más `sw`/`lw` en los
+límites de bloque; la mirilla recupera una parte.
+
+### Ejemplo recorrido
+
+```
+function cuad(n: integer): integer { return n * n; }
+let x: integer = cuad(3) + 1;
+print(x);
+```
+
+TAC:
+
+```
+func cuad(n):                 func __main():
+    $t1 = n * n                   param 3
+    return $t1                    $t1 = call cuad, 1
+endfunc                           $t1 = $t1 + 1
+                                  x = $t1
+                                  print x
+                              endfunc
+```
+
+Decisiones de `getReg` (`regs.trace`, lo que muestra el IDE):
+
+| Instrucción TAC | Valor | Registro | Razón |
+|---|---|---|---|
+| `$t1 = n * n` | `n` | `$t0` | carga (de `8($fp)`) |
+| | `$t1` | `$t1` | libre |
+| `$t1 = call cuad, 1` | `$t1` | `$t0` | libre (la llamada invalidó todo) |
+| `$t1 = $t1 + 1` | `$t1` | `$t0` | mismo registro |
+| `x = $t1` | `x` | `$t0` | reuso (`$t1` murió aquí) |
+
+MIPS (sin el prólogo/epílogo, ver arriba):
+
+```
+f_cuad:   lw    $t0, 8($fp)          # n es el argumento 0
+          mul   $t1, $t0, $t0
+          move  $v0, $t1             # return
+f___main: li    $v1, 3               # las constantes pasan por $v1, no gastan un registro
+          addiu $sp, $sp, -4         # (el marco del llamador ya está armado)
+          sw    $v1, 0($sp)
+          jal   f_cuad
+          addiu $sp, $sp, 4
+          move  $t0, $v0             # $t1 vive en $t0
+          addiu $t0, $t0, 1          # $t0 = $t0 + 1: el destino reutiliza el fuente
+          move  $a0, $t0             # print x
+          jal   rt_print_int
+          sw    $t0, 0($gp)          # x se guarda a su casa (global: $gp+0) al cerrar
+```
+
+(El orden exacto de las líneas se puede ver en la pestaña **asm** del IDE o con
+`make mips FILE=... --save`.)
+
+### Limitaciones conocidas
+
+- **Variables capturadas por una función anidada** viven en una casilla fija de `$gp`
+  (no en el marco). Funciona con una sola activación de la función exterior, pero si esta
+  es recursiva todas las activaciones comparten la variable.
+- **División entre cero** no lanza excepción: el resultado de `div` es indefinido en MIPS.
+  Sí lanzan `indice fuera de rango` y `referencia nula`.
+- **Sin `$s`**: ver arriba. Más tráfico a memoria en los límites de bloque.
+- Los literales de arreglo con elementos de subclases distintas (`[new Perro(), new Gato()]`)
+  los rechaza el análisis semántico (P1) aunque el tipo declarado sea `Animal[]`.
+
+### Pruebas
+
+`src/tests/asm/<categoría>/`: casos `.cps` con su salida esperada `.out`, un
+simulador mínimo (`support/minisim.py`) y pruebas del parser, de los marcos y de
+`getReg` (`registros/`). `make test` los corre junto al resto. Las carpetas
+`clases/`, `herencia/` y `try_catch/` cubren los objetos y las excepciones;
+`test_asm_excepciones.py` las excepciones sin manejador, `test_asm_peephole.py` la
+mirilla (cada regla y que optimizar no cambie la salida) y `test_asm_activation.py`
+los datos del IDE. Si hay `Mars4_5.jar` (`MARS_JAR` o `src/tools/`) los mismos
+casos corren también en MARS real.
 
 ## Equipo y división de trabajo
 

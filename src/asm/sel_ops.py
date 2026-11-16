@@ -1,6 +1,6 @@
-"""OpsSel: operaciones aritméticas, lógicas, comparaciones y `print` (Nes).
+"""OpsSel: operaciones aritméticas, lógicas, comparaciones y `print`.
 
-Contrato: docs/proyecto3/01-contrato.md §4 y §6. Solo se usa la API del
+Solo se usa la API del
 asignador (`regs.use`, `regs.def_`, `regs.scratch`, `regs.into`): ningún
 selector nombra registros para valores. Los registros fijos que sí aparecen
 (`$a0`, `$a1`, `$v0`, `$f12`) son los reservados del ABI del runtime.

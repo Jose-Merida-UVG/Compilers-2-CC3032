@@ -1,7 +1,7 @@
 """Pruebas del parser de TAC (`asm.tac_parser`): agrupación de `param`/`call`,
 inferencia de tipos de temporales, clases/vtables y marcos.
 
-No usan simulador. Ver docs/proyecto3/01-contrato.md §3.
+No usan simulador.
 """
 
 from __future__ import annotations

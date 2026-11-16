@@ -1,5 +1,5 @@
 """Pruebas de los registros de activación (`asm.frames`): casas, prólogo,
-epílogo y casillas. Ver docs/proyecto3/01-contrato.md §2."""
+epílogo y casillas."""
 
 from __future__ import annotations
 

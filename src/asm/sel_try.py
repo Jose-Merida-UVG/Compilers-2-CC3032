@@ -1,4 +1,4 @@
-"""TrySel: `try`, `endtry` y `catch` (Tono).
+"""TrySel: `try`, `endtry` y `catch`.
 
     try L     rt_try_push con la dirección de L (el manejador)
     endtry    rt_try_pop

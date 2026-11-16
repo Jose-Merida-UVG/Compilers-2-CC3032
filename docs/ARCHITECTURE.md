@@ -7,7 +7,7 @@ su propio documento; este solo muestra cómo encajan.
 |---|---|
 | [`semantic.md`](semantic.md) | Proyecto 1: sistema de tipos, tabla de símbolos, checker, reglas, errores y pruebas |
 | [`tac.md`](tac.md) | Proyecto 2: lenguaje intermedio (TAC), reciclaje de temporales, layout de memoria, generador y pruebas |
-| [`mips.md`](mips.md) | Proyecto 3: código objeto MIPS (IR, marcos, asignador de registros, selectores y runtime) |
+| [README, “Código objeto (MIPS)”](../README.md#código-objeto-mips) | Proyecto 3: código objeto MIPS (IR, marcos, asignador de registros, selectores, runtime y mirilla) |
 | [`enunciados/`](enunciados/) | Texto de los enunciados: definición del lenguaje y requisitos del P1 |
 
 ## Pipeline
@@ -68,7 +68,7 @@ divergir.
 | `src/semantic/checker.py` | `SemanticChecker`: el recorrido y todas las reglas; anota cada nodo para el generador. |
 | `src/semantic/layout.py` | Tamaños, offsets, direcciones, registros de activación y layout de clases. |
 | `src/tac/` | Generación de código intermedio: `generator.py`, `gen_core.py`, `gen_control.py`, `gen_functions.py`, `gen_classes.py`, `emitter.py`, `instructions.py`. |
-| `src/asm/` | Generación de MIPS: `ir/` (tipos, operandos e instrucciones), `tac_parser.py`, `frames.py`, `regalloc.py`, `emitter.py`, `sel_*.py` (un selector por instrucción), `runtime.py` y `generator.py` (el driver). Ver [`mips.md`](mips.md). |
+| `src/asm/` | Generación de MIPS: `ir/` (tipos, operandos e instrucciones), `tac_parser.py`, `frames.py`, `regalloc.py`, `emitter.py`, `sel_*.py` (un selector por instrucción), `runtime.py` y `generator.py` (el driver). Ver [README](../README.md#código-objeto-mips). |
 | `src/compiler.py` | Pipeline compartido. |
 | `src/server.py` + `frontend/` | IDE: endpoint `/api/run` y paneles de errores, árbol, tabla de símbolos y TAC. |
 | `src/tests/` | Pruebas: `semantic/<categoría>/` (P1) y `tac/<área>/` (P2). |

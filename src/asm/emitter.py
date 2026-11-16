@@ -1,6 +1,6 @@
 """Emisor de MIPS: secciones `.data` / `.text`, etiquetas y nombres seguros.
 
-Ver docs/proyecto3/01-contrato.md §1 y §5. Los selectores nunca arman el
+Los selectores nunca arman el
 archivo a mano: llaman a `ins`, `label`, `comment`, `string`, `float_`, `data`
 y `new_label`.
 """

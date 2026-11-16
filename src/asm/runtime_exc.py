@@ -1,4 +1,4 @@
-"""Excepciones en tiempo de ejecución (Tono).
+"""Excepciones en tiempo de ejecución.
 
 Pila de manejadores en `.data`: cada `try` apila `[dirección del catch][$sp][$fp]`
 y `endtry` la desapila. `rt_throw` restaura `$sp` y `$fp` del manejador de arriba
@@ -34,7 +34,7 @@ def emit_exc_runtime(asm: AsmEmitter) -> None:
     asm.data('rt_msg_index: .asciiz "indice fuera de rango"')
     asm.data('rt_msg_null: .asciiz "referencia nula"')
 
-    asm.comment("──────── excepciones (Tono) ────────")
+    asm.comment("──────── excepciones ────────")
     label("rt_try_push")  # $a0 = catch
     ins("lw    $v0, exc_top")
     ins("sw    $a0, 0($v0)")

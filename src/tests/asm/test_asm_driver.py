@@ -5,7 +5,7 @@ Dos niveles:
   * comportamiento: se ejecuta el `.s` en un intérprete mínimo (`support/minisim.py`,
     NO es MARS) usando selectores de prueba para las demás instrucciones. Así el
     núcleo (`getReg`, marcos, secuencia de llamada, recursión) queda cubierto
-    aunque los selectores reales de Nes y Tono todavía no existan.
+    sin depender de los selectores reales.
 """
 
 from __future__ import annotations
@@ -57,14 +57,14 @@ def test_tac_lines_are_commented_and_can_be_turned_off():
 
 
 class CoreOnly(CoreSel, BaseGen):
-    """Generador con solo el núcleo: sin ningún selector de Nes ni de Tono, para
-    que estas pruebas no dependan de qué archivos `sel_*.py` existan hoy."""
+    """Generador con solo el núcleo: solo con el núcleo (`Copy`), para probar el
+    driver sin los demás selectores."""
 
 
-def test_missing_selector_names_its_owner():
+def test_missing_selector_is_reported():
     with pytest.raises(NotImplementedError) as exc:
-        _asm("let a = [1, 2];", generator_class=CoreOnly)  # NewArray: lo implementa Nes
-    assert "sel_NewArray" in str(exc.value) and "Nes" in str(exc.value)
+        _asm("let a = [1, 2];", generator_class=CoreOnly)
+    assert "sel_NewArray" in str(exc.value)
 
 
 def test_non_strict_mode_leaves_a_todo_comment():

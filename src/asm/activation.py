@@ -1,4 +1,4 @@
-"""Datos del IDE: registros de activación y árbol de activación (Tono).
+"""Datos del IDE: registros de activación y árbol de activación.
 
     frames  etiqueta -> {label, total_size, slots}  (de `FrameInfo.slots()`)
     tree    el grafo de llamadas desplegado desde `__main`; cada nodo es una

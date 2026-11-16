@@ -1,9 +1,9 @@
-"""ControlSel: etiquetas y saltos (Nes).
+"""ControlSel: etiquetas y saltos.
 
 En el TAC, `if/else/while/do-while/for/foreach/switch/break/continue` ya son
 **saltos y etiquetas**; aquí solo se traducen `Label`, `Goto` y `CondJump`.
 
-El driver hace `flush()` ANTES de despachar un salto (contrato §4): la memoria
+El driver hace `flush()` ANTES de despachar un salto: la memoria
 queda al día, pero los registros siguen vigentes, así que la condición se lee
 de ellos sin recargar. Ninguno de estos selectores escribe un destino, por lo
 que no hay nada que guardar después del branch.

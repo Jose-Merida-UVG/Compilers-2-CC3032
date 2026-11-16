@@ -1,4 +1,4 @@
-"""Mirilla (peephole) sobre el MIPS ya generado (Tono).
+"""Mirilla (peephole) sobre el MIPS ya generado.
 
 Solo transformaciones que no cambian el comportamiento, buscadas entre
 instrucciones contiguas (los comentarios `# TAC: ...` se saltan, las etiquetas

@@ -1,13 +1,13 @@
 """TAC (texto) -> IR tipado.
 
 Entrada: las líneas del TAC que genera el Proyecto 2 y el JSON de la tabla de
-símbolos (`symbol_table_json`). Salida: un `Program` (ver ir.py). **Nada de
+símbolos (`symbol_table_json`). Salida: un `Program` (ver `ir/`). **Nada de
 esto mira el árbol sintáctico ni el checker**: el ensamblador se genera solo
 a partir del TAC y de la tabla de símbolos.
 
 El TAC no trae tipos para los temporales (`$t1 = a + b` no dice si es entero o
 float), así que aquí se infieren con un recorrido lineal por unidad
-(docs/proyecto3/01-contrato.md §3.1):
+:
 
   * variables y parámetros: el `type` de su símbolo;
   * constantes: por su forma;

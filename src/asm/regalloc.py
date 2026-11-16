@@ -1,7 +1,6 @@
 """Asignación de registros: `getReg()` con descriptores y siguiente uso.
 
-Algoritmo del libro (Aho et al., §8.6.3) adaptado al contrato
-docs/proyecto3/01-contrato.md §4:
+Algoritmo del libro (Aho et al., §8.6.3):
 
 * **Descriptor de registros**: qué valor tiene cada registro (`reg_op`).
 * **Descriptor de direcciones**: dónde está cada valor, en un registro

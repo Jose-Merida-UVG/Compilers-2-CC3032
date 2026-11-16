@@ -1,6 +1,6 @@
-"""CallSel: llamadas a funciones y `return` (Nes).
+"""CallSel: llamadas a funciones y `return`.
 
-Secuencia de llamada (contrato §2.3). Todo es *caller-saved*: no se usan `$s`.
+Secuencia de llamada. Todo es *caller-saved*: no se usan `$s`.
 
         addiu $sp, $sp, -4*n          # n argumentos (en métodos, `this` es el 0)
         sw    r_i, 4*i($sp)           # swc1 si es float

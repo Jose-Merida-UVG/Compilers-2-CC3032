@@ -1,6 +1,6 @@
 """Registros de activación: dónde vive cada valor y cómo se arma el marco.
 
-Contrato: docs/proyecto3/01-contrato.md §2. La pila crece hacia abajo:
+La pila crece hacia abajo:
 
         fp+8+4*i   argumento i (i = 0 es el primer parámetro / `this`)
         fp+4       $ra guardado

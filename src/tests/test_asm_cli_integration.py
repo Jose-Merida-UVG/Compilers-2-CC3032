@@ -1,4 +1,4 @@
-"""main.py --asm y server.py /api/run con el ensamblador (contrato P3 §8).
+"""main.py --asm y server.py /api/run con el ensamblador.
 
 `compiler.analyze` ya se prueba en `tests/test_compiler_integration.py`; aquí
 solo se verifica lo que viene después: lo que imprime el CLI, lo que devuelve y

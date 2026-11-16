@@ -2,22 +2,19 @@
 
 Entrada: el TAC (texto) y el JSON de la tabla de símbolos del Proyecto 2.
 Salida: `AsmResult` con las líneas MIPS "crudas" (sin mirilla), los datos de
-registros de activación y la traza de `getReg`. Contrato:
-docs/proyecto3/01-contrato.md.
+registros de activación y la traza de `getReg`.
 
-El driver es dueño de la estructura (prólogo, epílogo, bloques básicos,
-`flush`/`invalidate` en los límites de bloque); los selectores de cada
-instrucción viven en mixins `sel_*.py`, uno por dueño, y se importan **con
-respaldo**: si el archivo aún no existe se usa una clase vacía. Así nadie tiene
-que crear archivos ajenos.
+El driver se encarga de la estructura (prólogo, epílogo, bloques básicos,
+`flush`/`invalidate` en los límites de bloque); la traducción de cada
+instrucción vive en los mixins `sel_*.py`, que `AsmGenerator` junta.
 """
 
 from __future__ import annotations
 
-import importlib
 from dataclasses import dataclass, field
-from typing import Callable, Optional
+from typing import Optional
 
+from asm.activation import build_activation
 from asm.emitter import AsmEmitter, mangle_func
 from asm.frames import FrameInfo
 from asm.ir import (
@@ -28,45 +25,16 @@ from asm.ir import (
     Program,
 )
 from asm.regalloc import RegAlloc, block_live_out, split_blocks
+from asm.runtime import emit_runtime
+from asm.runtime_exc import emit_exc_runtime
+from asm.sel_arrays import ArraySel
+from asm.sel_calls import CallSel
+from asm.sel_control import ControlSel
+from asm.sel_core import CoreSel
+from asm.sel_objects import ObjectSel, emit_vtables
+from asm.sel_ops import OpsSel
+from asm.sel_try import TrySel
 from asm.tac_parser import parse_tac
-
-
-def _mixin(module: str, name: str) -> type:
-    """Clase `name` de `module`, o una clase vacía si el módulo aún no existe."""
-    try:
-        return getattr(importlib.import_module(module), name)
-    except ModuleNotFoundError as exc:
-        if exc.name != module:  # un fallo DENTRO del módulo no se esconde
-            raise
-        return type(name, (), {})
-
-
-def _soft_func(module: str, name: str) -> Optional[Callable]:
-    try:
-        return getattr(importlib.import_module(module), name)
-    except (ModuleNotFoundError, AttributeError) as exc:
-        if isinstance(exc, ModuleNotFoundError) and exc.name != module:
-            raise
-        return None
-
-
-CoreSel = _mixin("asm.sel_core", "CoreSel")  # Cami
-OpsSel = _mixin("asm.sel_ops", "OpsSel")  # Nes
-ControlSel = _mixin("asm.sel_control", "ControlSel")  # Nes
-ArraySel = _mixin("asm.sel_arrays", "ArraySel")  # Nes
-CallSel = _mixin("asm.sel_calls", "CallSel")  # Nes
-ObjectSel = _mixin("asm.sel_objects", "ObjectSel")  # Tono
-TrySel = _mixin("asm.sel_try", "TrySel")  # Tono
-
-# Quién debe implementar cada instrucción (para el mensaje de error)
-OWNERS = {
-    "Copy": "Cami", "Unary": "Nes", "Binary": "Nes", "Print": "Nes",
-    "CondJump": "Nes", "Goto": "Nes", "NewArray": "Nes", "Len": "Nes",
-    "IndexLoad": "Nes", "IndexStore": "Nes", "Call": "Nes", "Return": "Nes",
-    "New": "Tono", "FieldLoad": "Tono", "FieldStore": "Tono",
-    "VTableLoad": "Tono", "CallVirt": "Tono", "Try": "Tono",
-    "EndTry": "Tono", "Catch": "Tono",
-}
 
 
 @dataclass
@@ -110,16 +78,10 @@ class BaseGen:
         for unit in self.program.functions():
             self._gen_function(unit)
 
-        # runtime y datos de otros dueños (si ya existen)
-        emit_runtime = _soft_func("asm.runtime", "emit_runtime")
-        if emit_runtime:
-            emit_runtime(a)
-        emit_exc = _soft_func("asm.runtime_exc", "emit_exc_runtime")
-        if emit_exc:
-            emit_exc(a)
-        emit_vt = _soft_func("asm.sel_objects", "emit_vtables")
-        if emit_vt:
-            emit_vt(a, self.program.class_units())
+        # rutinas del runtime y tablas de métodos, después de todas las funciones
+        emit_runtime(a)
+        emit_exc_runtime(a)
+        emit_vtables(a, self.program.class_units())
 
     def _gen_function(self, unit: FuncUnit) -> None:
         a = self.a
@@ -153,10 +115,8 @@ class BaseGen:
         sel = getattr(self, "sel_" + name, None)
         if sel is None:
             if self.strict:
-                owner = OWNERS.get(name, "?")
                 raise NotImplementedError(
-                    f"falta el selector sel_{name} (dueño: {owner}); "
-                    f"instrucción TAC: {ins.line!r}"
+                    f"falta el selector sel_{name}; instrucción TAC: {ins.line!r}"
                 )
             self.a.comment(f"TODO sel_{name}")
             return
@@ -168,7 +128,7 @@ class BaseGen:
 
 
 class AsmGenerator(CoreSel, OpsSel, ControlSel, ArraySel, CallSel, ObjectSel, TrySel, BaseGen):
-    """Compone los selectores de todos los dueños."""
+    """Junta los selectores de todas las instrucciones."""
 
 
 def generate_asm(
@@ -181,8 +141,8 @@ def generate_asm(
 ) -> AsmResult:
     """TAC + tabla de símbolos -> MIPS crudo.
 
-    `strict=False` salta con un comentario las instrucciones cuyo selector aún
-    no existe (útil mientras el equipo termina sus archivos).
+    `strict=False` salta con un comentario las instrucciones sin selector
+    (lo usan las pruebas que arman un generador parcial).
     `generator_class` permite a las pruebas inyectar selectores propios.
     """
     program = parse_tac(tac, symbol_table)
@@ -190,13 +150,9 @@ def generate_asm(
     gen = (generator_class or AsmGenerator)(program, asm, strict=strict)
     gen.run()
 
-    activation: dict = {}
-    build = _soft_func("asm.activation", "build_activation")
-    if build:
-        activation = build(program, gen.frames)
     return AsmResult(
         lines=asm.lines(),
-        activation=activation,
+        activation=build_activation(program, gen.frames),
         regalloc_trace=gen.trace,
         warnings=program.warnings,
     )

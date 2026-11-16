@@ -1,6 +1,6 @@
-"""ArraySel: arreglos con verificación de rango (Nes).
+"""ArraySel: arreglos con verificación de rango.
 
-Formato (contrato §7): `[ longitud n ][ e0 ][ e1 ] ... [ e(n-1) ]`, 4 bytes por
+Formato: `[ longitud n ][ e0 ][ e1 ] ... [ e(n-1) ]`, 4 bytes por
 elemento sin importar el tipo. Acceso a `base[idx]`:
 
     lw    len, 0(base)

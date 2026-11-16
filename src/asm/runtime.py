@@ -1,6 +1,6 @@
-"""Runtime del Proyecto 3: impresión, memoria y strings (parte de Nes).
+"""Runtime del Proyecto 3: impresión, memoria y strings.
 
-Contrato: docs/proyecto3/01-contrato.md §7. Cada rutina se llama con `jal` y
+Cada rutina se llama con `jal` y
 **preserva todos los registros salvo** `$v0,$v1,$a0-$a3,$f0,$f12,$at`; las que
 necesitan más registros usan solo esos (guardan `$ra` y lo demás en la pila).
 Por eso un selector puede llamarlas a mitad de un bloque sin `flush()`.
@@ -15,14 +15,10 @@ Por eso un selector puede llamarlas a mitad de un bloque sin `flush()`.
     rt_str_eq        $a0, $a1           $v0 = 1 si el contenido es igual, si no 0
 
 `print` siempre agrega el salto de línea. Las rutinas de excepciones
-(`rt_throw_index`, `rt_throw`, ...) son de Tono (`runtime_exc.py`); mientras
-ese archivo no exista se emite un `rt_throw_index` mínimo para que el `.s`
-ensamble.
+(`rt_throw_index`, `rt_throw`, ...) están en `runtime_exc.py`.
 """
 
 from __future__ import annotations
-
-import importlib.util
 
 from asm.emitter import AsmEmitter
 
@@ -38,7 +34,7 @@ def emit_runtime(asm: AsmEmitter) -> None:
         ins("li    $a0, 10")
         ins("syscall")
 
-    asm.comment("──────── runtime (Nes) ────────")
+    asm.comment("──────── runtime ────────")
 
     # -- impresión ---------------------------------------------------------
     label("rt_print_int")
@@ -155,15 +151,3 @@ def emit_runtime(asm: AsmEmitter) -> None:
     label("rt_eq_no")
     ins("li    $v0, 0")
     ins("jr    $ra")
-
-    # -- respaldo mientras Tono no entregue runtime_exc.py ------------------------
-    if importlib.util.find_spec("asm.runtime_exc") is None:
-        asm.data('rt_msg_index: .asciiz "Excepcion no capturada: indice fuera de rango\\n"')
-        asm.comment("rt_throw_index provisional (se reemplaza por el de runtime_exc.py)")
-        label("rt_throw_index")
-        ins("la    $a0, rt_msg_index")
-        ins("li    $v0, 4")
-        ins("syscall")
-        ins("li    $a0, 1")
-        ins("li    $v0, 17")
-        ins("syscall")

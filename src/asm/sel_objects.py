@@ -1,4 +1,4 @@
-"""ObjectSel: objetos, campos, tabla de métodos y llamadas virtuales (Tono).
+"""ObjectSel: objetos, campos, tabla de métodos y llamadas virtuales.
 
 Un objeto es `[tabla de métodos][campo0][campo1]…`. `New` reserva `size` bytes
 y escribe en la palabra 0 la dirección de `vt_<Clase>`; `offset` y `fsize` de
