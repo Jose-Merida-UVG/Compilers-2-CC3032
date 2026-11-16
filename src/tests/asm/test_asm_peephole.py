@@ -122,3 +122,34 @@ def test_optimized_programs_print_the_same(path):
     sim = Sim(optimized)
     assert sim.run() == expected
     assert sim.exit_code == 0
+
+
+def test_jump_to_a_jump_goes_straight_to_the_final_target():
+    lines = ["    j     L1", "    li    $t0, 1", "L1:", "    j     L2", "    li    $t1, 2", "L2:", "    jr    $ra"]
+    out, changes = optimize(lines)
+    assert changes["salto_a_salto"] >= 1  # `j L1` pasa a `j L2` (y luego el resto queda muerto)
+    assert "    j     L1" not in out
+    out, _ = optimize(["    beq   $t0, $t1, L1", "    li    $t2, 1", "L1:", "    j     L9", "L9:", "    jr    $ra"])
+    assert out[0] == "    beq   $t0, $t1, L9"
+
+
+def test_jump_threading_ignores_a_label_that_does_not_lead_to_a_jump():
+    lines = ["    j     L1", "L0:", "    li    $t0, 1", "L1:", "    li    $t1, 2", "    jr    $ra"]
+    assert optimize(lines)[0][0] == "    j     L1"
+
+
+def test_consecutive_stack_adjustments_are_fused():
+    out, changes = optimize(["    addiu $sp, $sp, 4", "    # TAC: x", "    addiu $sp, $sp, -8", "    sw    $t0, 0($sp)"])
+    assert out == ["    # TAC: x", "    addiu $sp, $sp, -4", "    sw    $t0, 0($sp)"] or \
+        out == ["    addiu $sp, $sp, -4", "    # TAC: x", "    sw    $t0, 0($sp)"]
+    assert changes == {"fusion_ajustes_sp": 1}
+    out, _ = optimize(["    addiu $sp, $sp, 4", "    addiu $sp, $sp, -4", "    jr    $ra"])
+    assert out == ["    jr    $ra"]
+
+
+def test_stack_adjustments_are_not_fused_across_a_label_or_another_instruction():
+    for lines in (
+        ["    addiu $sp, $sp, 4", "L:", "    addiu $sp, $sp, -4"],
+        ["    addiu $sp, $sp, 4", "    sw    $t0, 0($sp)", "    addiu $sp, $sp, -4"],
+    ):
+        assert optimize(lines) == (lines, {})

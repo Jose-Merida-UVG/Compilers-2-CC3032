@@ -16,6 +16,10 @@ no, porque alguien puede saltar a ellas):
     salto_sobre_salto     `beq x,y,L1` + `j L2` + `L1:`       `bne x,y,L2` + `L1:`
     codigo_muerto         instrucciones entre un `j`/`jr` y   se quitan
                           la siguiente etiqueta
+    salto_a_salto         `j L` con `L: j M`                  `j M`
+                          (igual con `beq`/`bne`)
+    fusion_ajustes_sp     `addiu $sp,$sp,A` + `addiu $sp,$sp,B`  un solo `addiu` con A+B
+                          (se quitan los dos si A+B es 0)
 
 `optimize(lines)` devuelve las líneas nuevas y cuántas veces se aplicó cada una.
 """
@@ -38,6 +42,7 @@ _IDENT = re.compile(
 )
 _BRANCH = re.compile(r"^(beq|bne)\s+(\$\w+),\s*(\$\w+),\s*([\w$.]+)$")
 _INVERSE = {"beq": "bne", "bne": "beq"}
+_SP = re.compile(r"^addiu\s+\$sp,\s*\$sp,\s*(-?\d+)$")
 _BARRIER = re.compile(r"^(j\s+[\w$.]+|jr\s+\$\w+)$")
 
 
@@ -65,6 +70,19 @@ def _label_follows(lines: list[str], i: int, target: str) -> bool:
             return True
         j = _next(lines, j)
     return False
+
+
+def _jump_target(lines: list[str], label: str) -> str | None:
+    """Si la primera instrucción después de `label:` es `j M`, devuelve `M`."""
+    for i, line in enumerate(lines):
+        if _code(line) != f"{label}:":
+            continue
+        j = _next(lines, i)
+        while j is not None and _LABEL.match(_code(lines[j])):
+            j = _next(lines, j)  # otras etiquetas caen igual en la misma instrucción
+        jump = _JUMP.match(_code(lines[j])) if j is not None else None
+        return jump.group(1) if jump else None
+    return None
 
 
 def _is_instruction(code: str) -> bool:
@@ -98,8 +116,29 @@ def _pass(lines: list[str], changes: Counter) -> list[str]:
                 drop.add(j)
                 changes["move_ida_y_vuelta"] += 1
 
+        m = _SP.match(code)
+        if m:
+            j = _next(lines, i)
+            nxt = _SP.match(_code(lines[j])) if j is not None else None
+            if nxt:
+                total = int(m.group(1)) + int(nxt.group(1))
+                indent = lines[i][: len(lines[i]) - len(lines[i].lstrip())]
+                if total == 0:
+                    drop.add(i)
+                else:
+                    repl[i] = f"{indent}addiu $sp, $sp, {total}"
+                drop.add(j)
+                changes["fusion_ajustes_sp"] += 1
+                continue
+
         m = _BRANCH.match(code)
         if m:
+            target = _jump_target(lines, m.group(4))
+            if target is not None and target != m.group(4) and not _label_follows(lines, i, m.group(4)):
+                indent = lines[i][: len(lines[i]) - len(lines[i].lstrip())]
+                repl[i] = f"{indent}{m.group(1)}   {m.group(2)}, {m.group(3)}, {target}"
+                changes["salto_a_salto"] += 1
+                continue
             j = _next(lines, i)
             jump = _JUMP.match(_code(lines[j])) if j is not None else None
             if jump and _label_follows(lines, j, m.group(4)):
@@ -122,6 +161,13 @@ def _pass(lines: list[str], changes: Counter) -> list[str]:
             drop.add(i)
             changes["salto_a_la_siguiente"] += 1
             continue
+        if m:
+            target = _jump_target(lines, m.group(1))
+            if target is not None and target != m.group(1):
+                indent = lines[i][: len(lines[i]) - len(lines[i].lstrip())]
+                repl[i] = f"{indent}j     {target}"
+                changes["salto_a_salto"] += 1
+                continue
 
         m = _STORE.match(code)
         if m:

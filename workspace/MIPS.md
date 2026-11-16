@@ -48,7 +48,7 @@ MIPS crudo ──peephole.optimize──▶ MIPS final
 | Registros | `regalloc.py` | `getReg`: qué valor ocupa qué registro y cuándo se derrama a memoria. |
 | Traducción | `sel_*.py` | Un *selector* (`sel_Binary`, `sel_Call`...) por instrucción del IR; escribe el MIPS. |
 | Rutinas fijas | `runtime.py`, `runtime_exc.py` | `print`, `rt_alloc`, arreglos, strings y excepciones, escritas en MIPS. |
-| Optimización | `peephole.py` | Mirilla: 8 reglas sobre el MIPS ya generado. |
+| Optimización | `peephole.py` | Mirilla: 10 reglas sobre el MIPS ya generado. |
 | Datos del IDE | `activation.py` | Marcos y árbol de activación. |
 
 ## 2. Qué entra
@@ -525,43 +525,139 @@ nombre de una global) reciben etiquetas distintas (`g`, `g_1`).
 
 ## 7. Mirilla (peephole)
 
-`peephole.optimize` recorre el MIPS ya generado buscando patrones entre
-instrucciones contiguas. Se saltan los comentarios `# TAC:`; las etiquetas no,
-porque alguien puede saltar a ellas. Repite hasta 5 pasadas (quitar algo puede
-dejar otro patrón al descubierto) y cuenta cuántas veces aplicó cada regla.
-Ninguna regla cambia lo que hace el programa.
+### Qué es y por qué existe
 
-| Regla | Antes | Después |
-|-------|-------|---------|
-| `move_redundante` | `move $r, $r` | se quita |
-| `salto_a_la_siguiente` | `j L` justo antes de `L:` | se quita el salto |
-| `carga_tras_guardar` | `sw $r, A` + `lw $r, A` (y `swc1`/`lwc1`) | se quita el `lw` |
-| `guardar_tras_cargar` | `lw $r, A` + `sw $r, A` | se quita el `sw` (no si `$r` es la base de `A`) |
-| `identidad_aritmetica` | `addiu $r,$r,0`, `addu $r,$r,$zero`, `sll $r,$r,0`, `ori $r,$r,0` | se quita |
-| `move_ida_y_vuelta` | `move a, b` + `move b, a` | se quita el segundo |
-| `salto_sobre_salto` | `beq x,y,L1` + `j L2` + `L1:` | `bne x,y,L2` + `L1:` (y `bne` → `beq`) |
-| `codigo_muerto` | instrucciones entre un `j`/`jr` y la siguiente etiqueta | se quitan |
+El generador traduce **una instrucción del TAC a la vez**, sin mirar las de al
+lado, así que a veces deja pequeñas ineficiencias en las costuras: un salto a la
+línea que sigue, un `move` que deshace el anterior, dos ajustes de `$sp` seguidos.
+La *mirilla* (peephole) es una pasada final que mira una ventana de instrucciones
+contiguas del MIPS ya generado y reemplaza los patrones conocidos por algo
+equivalente y más corto. Se llama así porque solo ve por un agujerito: no entiende
+el programa, solo busca patrones.
 
-Ejemplo real de `salto_sobre_salto`, de un `if (i == 3) { break; }` dentro de un
-`while`:
+Ninguna regla cambia lo que hace el programa; por eso el compilador puede mostrar
+el código con y sin mirilla y los dos imprimen lo mismo.
 
+### Cómo trabaja
+
+- Recorre las líneas buscando cada patrón. Los comentarios `# TAC:` y las líneas en
+  blanco **no cuentan** como instrucciones (se saltan); las **etiquetas sí**, porque
+  alguien podría saltar a ellas y entonces las dos instrucciones ya no son vecinas
+  de verdad.
+- Repite hasta 5 pasadas, porque quitar algo puede dejar otro patrón al
+  descubierto (por ejemplo, al quitar código muerto un salto queda justo antes de
+  su etiqueta y también se quita).
+- Cuenta cuántas veces aplicó cada regla; eso es lo que muestra el IDE.
+
+### Las 10 reglas
+
+**1. `move_redundante`** — copiar un registro a sí mismo no hace nada.
 ```
-    bne   $t0, $t1, L5           beq   $t0, $t1, L3
-    j     L3               →
-L5:                            L5:
+    move  $t0, $t0          →   (se quita)
+```
+**2. `salto_a_la_siguiente`** — un `j` a la línea que sigue es innecesario (pueden
+mediar otras etiquetas o comentarios). Es la más frecuente: todo `return` salta al
+epílogo que está justo debajo.
+```
+    j     f_dbl__ret                (se quita)
+f_dbl__ret:                     f_dbl__ret:
+```
+**3. `carga_tras_guardar`** — si acabas de guardar un registro en una dirección,
+cargarlo de vuelta de la misma dirección al mismo registro es inútil (también con
+`swc1`/`lwc1`; con `lb` no, porque extiende el signo).
+```
+    sw    $t0, -4($fp)             sw    $t0, -4($fp)
+    lw    $t0, -4($fp)       →     (se quita el lw)
+```
+**4. `guardar_tras_cargar`** — lo inverso: cargar y guardar lo mismo en la misma
+dirección no cambia la memoria (no aplica si el registro es la base de la dirección,
+como en `lw $t0, 0($t0)`).
+```
+    lw    $t0, 8($gp)              lw    $t0, 8($gp)
+    sw    $t0, 8($gp)        →     (se quita el sw)
+```
+**5. `identidad_aritmetica`** — sumar cero, desplazar cero bits u `ori` con cero sobre el
+mismo registro no hace nada: `addiu $r,$r,0`, `addu $r,$r,$zero`, `sll $r,$r,0`,
+`ori $r,$r,0`. Sale de código como `(a * b) + 0`.
+```
+    mul   $t2, $t0, $t1             mul   $t2, $t0, $t1
+    addiu $t2, $t2, 0         →     (se quita)
+```
+**6. `move_ida_y_vuelta`** — copiar `b` a `a` y enseguida `a` a `b` deja todo igual;
+el segundo `move` sobra.
+```
+    move  $t0, $t1                  move  $t0, $t1
+    move  $t1, $t0            →     (se quita el segundo)
+```
+**7. `salto_sobre_salto`** — una rama que salta una sola instrucción `j` se invierte y
+absorbe el salto. Aparece en un `if` cuyo cuerpo termina en `break` o `continue`.
+```
+    beq   $t0, $t1, L1              bne   $t0, $t1, L2
+    j     L2                  →  L1:
+L1:
+```
+**8. `codigo_muerto`** — lo que está entre un `j`/`jr` y la siguiente etiqueta nunca
+se ejecuta. Aparece con `&&` y `||`, donde el TAC deja un salto y luego código que
+ya no se alcanza.
+```
+    j     L9                        j     L9
+    li    $t0, 1             →  L1:
+L1:
+```
+**9. `salto_a_salto`** — un salto cuyo destino es otro salto va directo al destino
+final (también con `beq`/`bne`). Aparece con ifs y ciclos anidados.
+```
+    j     L1                        j     L2
+    ...                       →     ...
+L1: j     L2                    L1: j     L2
+```
+**10. `fusion_ajustes_sp`** — dos ajustes seguidos del puntero de pila se suman en uno
+(y desaparecen si suman cero). Aparece en llamadas seguidas, donde el `+4` que libera
+los argumentos de una choca con el `-4` que reserva los de la siguiente.
+```
+    addiu $sp, $sp, 4               (se quitan los dos)
+    addiu $sp, $sp, -4
 ```
 
-Y de `salto_a_la_siguiente`, en todo `return` que cae justo en el epílogo:
+### Qué reglas aparecen en programas reales
 
-```
-    j     f_dbl__ret             (se quita)
-f_dbl__ret:                      f_dbl__ret:
-```
+El generador ya evita muchos patrones (por ejemplo, el asignador nunca emite
+`move $r, $r`), así que no todas las reglas se activan con cualquier programa.
+`move_redundante`, `carga_tras_guardar` y `guardar_tras_cargar` son redes de
+seguridad: se prueban a mano en `test_asm_peephole.py` y casi nunca aparecen en la
+salida real. Las demás sí salen de programas normales:
 
-En el IDE, la pestaña **asm** tiene el botón *Sin mirilla* para ver el antes y
-el después, y el resumen de arriba muestra cuántas instrucciones se quitaron y por qué regla.
-`test_asm_peephole.py` prueba cada regla, los casos donde no debe aplicar y que
-optimizar no cambie lo que imprime ningún programa válido.
+| Regla | Aparece en |
+|-------|------------|
+| `salto_a_la_siguiente` | cualquier función con `return` (por ejemplo `09-herencia-valido.cps`) |
+| `salto_sobre_salto` | `if` con `break`/`continue` (`05-control_flujo-valido.cps`) |
+| `codigo_muerto` | `&&` y `||` |
+| `move_ida_y_vuelta` | llamadas anidadas, recursión |
+| `salto_a_salto` | `if`/`else` dentro de un ciclo |
+| `fusion_ajustes_sp` | varias llamadas seguidas con argumentos |
+| `identidad_aritmetica` | `(a * b) + 0` |
+
+El demo **`16-mirilla-valido.cps`** reúne seis de estas reglas
+(`salto_a_la_siguiente`, `salto_sobre_salto`, `salto_a_salto`, `move_ida_y_vuelta`,
+`fusion_ajustes_sp` e `identidad_aritmetica`) en un programa corto y comentado.
+
+### Cómo verlo en el IDE
+
+1. Abrir `input/comp-mips/16-mirilla-valido.cps` y **▶ Compilar**.
+2. En la pestaña **asm**, arriba del código, salen los contadores: `264 → 252
+   instrucciones (−12)` y un chip por regla con las veces que se aplicó
+   (`fusion_ajustes_sp ×3`, ...).
+3. Los botones **Sin mirilla** y **Con mirilla** alternan entre el código original y
+   el optimizado; la leyenda de abajo del resumen dice cuál se está mostrando.
+4. Para ver una regla concreta, buscar el patrón del "antes" en *Sin mirilla* y
+   comprobar que ya no está en *Con mirilla*. Las líneas `# TAC:` ayudan a ubicar
+   dónde pasó.
+
+Sin el IDE: `peephole.optimize(lineas)` devuelve `(líneas_nuevas, conteo_por_regla)`.
+
+`test_asm_peephole.py` prueba cada regla, los casos donde **no** deben aplicar (una
+etiqueta en medio, otra base de dirección...) y que optimizar no cambie lo que
+imprime ningún programa válido.
 
 ## 8. Rúbrica: dónde está cada cosa
 
@@ -579,7 +675,7 @@ optimizar no cambie lo que imprime ningún programa válido.
 | Clases y objetos (2) | `rt_alloc`, offsets del layout, `null` | `sel_objects.py`; demo `08` |
 | Herencia (2) | Tablas de métodos, `callvirt`, slots reutilizados | `sel_objects.py`, `emit_vtables`; demo `09` |
 | try/catch (2) | Pila de manejadores, `rt_throw`, desenrollado | `sel_try.py`, `runtime_exc.py`; demo `10` |
-| Mirilla, ≥ 6 transformaciones (3) | 8 reglas | `peephole.py`; sección 7 |
+| Mirilla, ≥ 6 transformaciones (3) | 10 reglas; el demo `16-mirilla-valido.cps` activa 6 | `peephole.py`; sección 7 |
 | Simulador (1) | MARS: `src/tools/Mars4_5.jar` | `src/run_mips.py`, `make mips` |
 
 ## 9. Limitaciones conocidas

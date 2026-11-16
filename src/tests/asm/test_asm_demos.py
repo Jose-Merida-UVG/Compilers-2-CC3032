@@ -27,6 +27,8 @@ EXPECTED = {
     "14-registros-valido.cps": "91\n-54\n7.75\n",
     # 3² + 4² + fib(10) = 9 + 16 + 55; 21*2; fib(7)
     "15-activacion-valido.cps": "80\n42\n13\n",
+    # 1, 2, 3; break en i == 3; pares entre 0 y 5; && y ||; 2*3; gcd(48, 18)
+    "16-mirilla-valido.cps": "1\n2\n3\n3\n3\nok\n6\n6\n",
 }
 
 
@@ -69,3 +71,9 @@ def test_valid_demo_prints_the_same_in_mars(path):
     proc = run_in_mars(generate_asm(result["tac"], result["symbol_table_json"]).lines)
     assert proc.stdout == sim_out + "\n", proc.stderr  # MARS agrega un "\n" al terminar
     assert proc.returncode == 0
+
+
+def test_peephole_demo_triggers_at_least_six_distinct_rules():
+    result = compile_demo(os.path.join(DEMOS, "16-mirilla-valido.cps"))
+    assert result["errors"] == []
+    assert len(result["asm_stats"]["peephole"]) >= 6, result["asm_stats"]["peephole"]

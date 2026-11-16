@@ -66,7 +66,7 @@ arguments are pushed.
 | 12 | `sel_try.py` | `try/catch`. Flushes after every instruction when the program uses `try`. | whole file |
 | 13 | `runtime.py`, `runtime_exc.py` | Routines written in MIPS appended to every program: print, alloc, string concat/equals, exception stack. | the docstring tables |
 | 14 | `emitter.py` | Writes the `.s`: `.data`, `.text`, label names. | skim |
-| 15 | `peephole.py` | Post-pass over the generated MIPS: 8 local rewrites. | the rule table |
+| 15 | `peephole.py` | Post-pass over the generated MIPS: 10 local rewrites. | the rule table |
 | 16 | `activation.py` | Builds the frames/call tree the IDE shows. | skim |
 
 ## How a program flows through it

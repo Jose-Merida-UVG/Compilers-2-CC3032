@@ -228,7 +228,7 @@ abre desde el IDE): el proceso paso a paso, el formato de las entradas, cómo le
 las salidas del IDE, el modelo de memoria, el asignador de registros, un ejemplo
 TAC → MIPS de cada construcción (declaraciones, aritmética, lógica, arreglos,
 control de flujo, funciones, recursión, clases, herencia, try/catch, closures),
-las 8 reglas de la mirilla y dónde está cada criterio de la rúbrica.
+las 10 reglas de la mirilla y dónde está cada criterio de la rúbrica.
 El recorrido del código archivo por archivo está en
 [src/asm/map.md](src/asm/map.md).
 
