@@ -1,4 +1,4 @@
-# Compiscript — Compilador: análisis y código intermedio (TAC)
+# Compiscript — Compilador: análisis, código intermedio (TAC) y MIPS
 
 **Demo (Lab 1 — léxico/sintáctico):** https://youtu.be/IowDshTJ0TI
 
@@ -16,10 +16,13 @@ gráfica. Cubre dos entregas del curso:
   ningún error (léxico, sintáctico ni semántico), se genera **código de tres
   direcciones (TAC)** como texto, y la tabla de símbolos se completa con
   tamaños, offsets, direcciones y registros de activación. Si hay cualquier
-  error **no se genera TAC**. El compilador no ejecuta el programa ni produce
-  código objeto.
+  error **no se genera TAC**.
+- **Proyecto 3 — código objeto:** con el TAC y la tabla de símbolos se genera
+  ensamblador **MIPS32** (para MARS/SPIM), con asignación de registros,
+  registros de activación, objetos con despacho dinámico y excepciones. Si hay
+  cualquier error no se genera MIPS. El compilador no ejecuta el programa.
 
-Pipeline: `fuente → Lexer → Parser → SemanticChecker → TACGenerator → layout`.
+Pipeline: `fuente → Lexer → Parser → SemanticChecker → TACGenerator → layout → generador de MIPS`.
 
 ## Documentación
 
@@ -32,6 +35,10 @@ Pipeline: `fuente → Lexer → Parser → SemanticChecker → TACGenerator → 
   intermedio (instrucciones, justificación, ejemplos fuente → TAC), el algoritmo
   de reciclaje de temporales, la tabla de símbolos para el código objeto, el
   generador, las pruebas y la autoría.
+- [workspace/MIPS.md](workspace/MIPS.md): Proyecto 3, con el proceso, el modelo
+  de memoria, el asignador de registros, un ejemplo de cada construcción en MIPS,
+  la mirilla y la rúbrica. El recorrido por archivos está en
+  [src/asm/map.md](src/asm/map.md).
 - [docs/enunciados/](docs/enunciados/): definición del lenguaje y requisitos
   del P1.
 
@@ -43,12 +50,13 @@ Pipeline: `fuente → Lexer → Parser → SemanticChecker → TACGenerator → 
 - `src/error_listener.py`: listener de errores de ANTLR que da formato en español a los errores léxicos y sintácticos y permite seguir tras el primer error.
 - `src/semantic/`: análisis semántico. `types.py` (sistema de tipos), `symbols.py` (tabla de símbolos y árbol de ámbitos), `errors.py`, `checker.py` (el visitor `SemanticChecker`, con todas las reglas; también anota cada nodo con su tipo y símbolo para la fase de TAC) y `layout.py` (tamaños, offsets, direcciones, registros de activación y layout de clases).
 - `src/tac/`: generación de código intermedio. `generator.py` (`TACGenerator`, une los cuatro mixins), `gen_core.py` (declaraciones, expresiones, condiciones, arreglos), `gen_control.py` (if, bucles, switch, try/catch), `gen_functions.py` (funciones, llamadas, return), `gen_classes.py` (clases, objetos, herencia), `emitter.py` (emisión de instrucciones y reciclaje de temporales) e `instructions.py` (convenciones de formato).
+- `src/asm/`: generación de MIPS. `ir/` (el IR: tipos, operandos e instrucciones), `tac_parser.py` (TAC texto → IR), `frames.py` (marcos de activación), `regalloc.py` (asignador de registros), `sel_*.py` (los selectores, agrupados por tema: asignación, operaciones, control, arreglos, llamadas, objetos, excepciones), `runtime.py`/`runtime_exc.py` (rutinas y excepciones), `peephole.py` (mirilla), `activation.py` (datos del IDE), `emitter.py` y `generator.py` (el driver). Ver [workspace/MIPS.md](workspace/MIPS.md).
 - `src/main.py`: punto de entrada del CLI (`make cli`).
 - `src/server.py`: backend FastAPI, con una API de archivos sobre `workspace/` y `/api/run`.
 - `src/tests/`: pruebas automáticas (`make test`). `src/tests/semantic/<categoría>/` tiene una batería de casos `.cps` por categoría de regla semántica, y `src/tests/tac/<área>/` tiene casos válidos e inválidos por cada punto de la rúbrica de TAC (los válidos deben compilar y generar TAC).
 - `src/tools/`: jar de ANTLR incluido, usado solo para generar el código.
 - `frontend/`: IDE de navegador (Vite + React/TS). Tiene explorador de archivos (selecciona el archivo de entrada), editor, panel de salida con errores navegables, visor del árbol de análisis, visor de la tabla de símbolos (con tamaños, offsets y registros de activación) y visor de TAC. Todos los resultados se muestran ahí, no solo en consola.
-- `workspace/`: directorio de trabajo del IDE. `input/` tiene programas `.cps` de ejemplo (`input/comp-tac/` tiene los demos de la rúbrica del P2) y `output/` guarda los resultados de cada corrida (`.out`, `.tree`, `.symbols`, `.tac`).
+- `workspace/`: directorio de trabajo del IDE. `input/` tiene programas `.cps` de ejemplo (`input/comp-mips/` tiene los demos del IDE: los de la rúbrica del P2 y los de MIPS) y `output/` guarda el código generado de cada corrida (`.tac` y `.s`).
 - `docs/`: documentación (arquitectura, una guía por proyecto y los enunciados).
 
 ## Requisitos
@@ -98,7 +106,7 @@ make cli FILE=<ruta-al-archivo-fuente>
 Por ejemplo:
 
 ```
-make cli FILE=workspace/input/comp-tac/06-funciones-valido.cps
+make cli FILE=workspace/input/comp-mips/06-funciones-valido.cps
 ```
 
 Esto hace el análisis léxico y sintáctico del archivo y, si no hubo errores de
@@ -134,10 +142,24 @@ símbolos esperadas (`tabla_simbolos/valido_*.symbols.json`) se regeneran con
 `UPDATE_GOLDEN=1 make test ARGS="src/tests/tac/tabla_simbolos"`; hay que
 **revisar el diff**.
 
-Los programas de demostración del IDE están en `workspace/input/comp-tac/`: un
+Los programas de demostración del IDE están en `workspace/input/comp-mips/`: un
 `NN-<área>-valido.cps` y un `NN-<área>-invalido.cps` por cada punto de la rúbrica del
-Proyecto 2, numerados en el orden de la rúbrica (01 a 12), y `13-recorrido-completo.cps`,
-una demo que junta todas las áreas.
+Proyecto 2, numerados en el orden de la rúbrica (01 a 12), `13-recorrido-completo.cps`,
+una demo que junta todas las áreas, y dos del Proyecto 3: `14-registros` (muchos valores
+vivos, el asignador derrama a memoria) y `15-activacion` (llamadas anidadas, recursión y un
+método, para el árbol y los registros de activación). `make test` compila todos a MIPS y
+los ejecuta.
+
+## Ejecutar el MIPS
+
+```
+make mips FILE=workspace/input/comp-mips/15-activacion-valido.cps
+```
+
+Compila el `.cps` a MIPS y lo ejecuta en MARS, imprimiendo lo que imprime el
+programa (`--save salida.s` en `src/run_mips.py` guarda además el ensamblador). Con
+errores no ejecuta nada. Necesita `java` y `Mars4_5.jar` (`MARS_JAR` o
+`src/tools/`). En el IDE se hace con **▶ Ejecutar**.
 
 ## IDE web (frontend y backend juntos)
 
@@ -177,12 +199,14 @@ se muestran dentro de la interfaz, no solo en la terminal:
   resaltados, y un botón para copiar. Con cualquier error la pestaña se oculta y
   un aviso indica que no se generó código intermedio.
 
-Cada corrida guarda además en el workspace `output/<nombre>/<nombre>.cps.out`
-(texto plano), `.tree` (árbol de análisis en JSON), `.symbols` (tabla de símbolos
-en JSON, si corrió el análisis semántico) y `.tac` (el código intermedio, si no
-hubo errores; si la nueva corrida tiene errores se borra el `.tac` de la anterior).
-Todos se pueden reabrir desde el explorador, y los `.tree` y `.symbols` se abren
-en sus visores en vez de como JSON crudo.
+Cada corrida guarda el código generado en `output/<nombre>/`: `<nombre>.cps.tac` (el
+código intermedio) y `<nombre>.cps.s` (el MIPS), solo si no hubo errores; con errores se
+borran los de la corrida anterior. El árbol, la tabla de símbolos y el resto salen en
+sus pestañas, no en archivos.
+
+**▶ Ejecutar** compila el archivo y corre el MIPS en MARS: lo que imprime el programa
+sale en el panel OUTPUT, y un programa que no termina se corta a los 10 s. Necesita
+`java` y `Mars4_5.jar` en el servidor (`MARS_JAR` o `src/tools/`).
 
 ## Limpieza
 
@@ -190,6 +214,38 @@ en sus visores en vez de como JSON crudo.
 make clean       # borra los directorios __pycache__ y workspace/output/
 make distclean   # clean, y además borra .venv
 ```
+
+## Código objeto (MIPS)
+
+Traduce el TAC y la tabla de símbolos del P2 a ensamblador MIPS32 para MARS.
+Vive en `src/asm/`; la entrada es `generate_asm(tac, symbol_table)`
+(`generator.py`) y la llama `compiler.analyze()` solo si no hubo ningún error.
+Si el generador falla, el error se reporta como "Error interno al generar el
+ensamblador" y no se publica ni TAC ni MIPS.
+
+La guía completa está en **[workspace/MIPS.md](workspace/MIPS.md)** (también se
+abre desde el IDE): el proceso paso a paso, el formato de las entradas, cómo leer
+las salidas del IDE, el modelo de memoria, el asignador de registros, un ejemplo
+TAC → MIPS de cada construcción (declaraciones, aritmética, lógica, arreglos,
+control de flujo, funciones, recursión, clases, herencia, try/catch, closures),
+las 10 reglas de la mirilla y dónde está cada criterio de la rúbrica.
+Si no conoces MIPS, [workspace/MIPS-basico.md](workspace/MIPS-basico.md) es la
+introducción. El recorrido del código archivo por archivo está en
+[src/asm/map.md](src/asm/map.md).
+
+```
+TAC + tabla de símbolos
+   │  tac_parser.parse_tac         texto → objetos del IR (Program)
+   │  por cada función:  prólogo → bloques básicos → sel_<Clase> por instrucción → epílogo
+   │  runtime + tablas de métodos
+   ▼
+MIPS crudo ──peephole.optimize──▶ MIPS final
+```
+
+Pruebas: `make test ARGS="src/tests/asm -q"`. Los programas de
+`src/tests/asm/estres_casos.py` cubren cada área de la rúbrica con casos
+difíciles (herencia profunda, recursión, derrames de registros, closures,
+excepciones).
 
 ## Equipo y división de trabajo
 

@@ -2,7 +2,7 @@ VENV := .venv
 PYTHON := $(if $(wildcard $(VENV)/bin/python3),$(VENV)/bin/python3,python3)
 UVICORN := $(if $(wildcard $(VENV)/bin/uvicorn),$(VENV)/bin/uvicorn,uvicorn)
 
-.PHONY: install generate run cli test clean distclean
+.PHONY: install generate run cli mips test clean distclean
 
 install:
 	test -d $(VENV) || python3 -m venv $(VENV)
@@ -22,6 +22,11 @@ run:
 # Runs a single .cps file through the CLI, e.g. `make cli FILE=src/tests/valid.cps`
 cli:
 	PYTHONPATH=src/generated:src $(PYTHON) src/main.py $(FILE)
+
+# Compiles a .cps to MIPS and runs it in MARS, e.g.
+# `make mips FILE=workspace/input/comp-mips/15-activacion-valido.cps`
+mips:
+	PYTHONPATH=src/generated:src $(PYTHON) src/run_mips.py $(FILE)
 
 # Runs the full test suite (src/tests/). Narrow it down with e.g.
 # `make test ARGS="src/tests/semantic/tipos -v"`.

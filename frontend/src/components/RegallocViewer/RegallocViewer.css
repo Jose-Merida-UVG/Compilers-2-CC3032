@@ -1,0 +1,136 @@
+.reg-viewer {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-editor);
+}
+
+.reg-viewer__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.reg-select {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.reg-select select {
+  padding: 3px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.reg-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.reg-viewer__body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 14px 14px;
+}
+
+.reg-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.reg-table th {
+  position: sticky;
+  top: 0;
+  padding: 8px 10px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  background: var(--bg-editor);
+  border-bottom: 1px solid var(--border-strong);
+}
+
+.reg-table td {
+  padding: 6px 10px;
+  vertical-align: top;
+  border-bottom: 1px solid var(--border);
+}
+
+.reg-table tbody tr:hover {
+  background: var(--bg-hover);
+}
+
+.reg-table__num {
+  color: var(--text-muted);
+  width: 32px;
+}
+
+.reg-table__tac {
+  color: var(--accent-text);
+  white-space: nowrap;
+}
+
+.reg-decision,
+.reg-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0 12px 3px 0;
+  white-space: nowrap;
+}
+
+.reg-decision__arrow,
+.reg-none {
+  color: var(--text-muted);
+}
+
+.reg-decision__reg,
+.reg-cell__reg {
+  color: var(--color-info);
+}
+
+.reg-cell__val {
+  color: var(--text);
+}
+
+.reg-dirty {
+  color: var(--color-warning);
+  margin-left: 2px;
+}
+
+.reg-tag {
+  padding: 0 5px;
+  border-radius: var(--radius-sm);
+  font-size: 10px;
+  font-weight: 500;
+  background: var(--bg-elevated);
+  color: var(--text-dim);
+}
+
+.reg-tag--carga { color: var(--color-info); }
+.reg-tag--libre { color: var(--color-success); }
+.reg-tag--reuso { color: var(--accent-text); }
+.reg-tag--spill { color: var(--color-error); }
+.reg-tag--flush { color: var(--color-warning); }

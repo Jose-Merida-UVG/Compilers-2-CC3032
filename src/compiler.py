@@ -7,6 +7,7 @@ source and turn the result into errors + a parse tree.
 from __future__ import annotations
 
 from asm.generator import generate_asm
+from asm.peephole import optimize
 
 from antlr4 import FileStream, InputStream, CommonTokenStream
 from antlr4.tree.Tree import TerminalNodeImpl
@@ -18,17 +19,6 @@ from semantic.checker import SemanticChecker
 from semantic.layout import assign_layout
 from semantic.symbols import Scope
 from tac.generator import TACGenerator
-
-def optimize(lines: list[str]) -> tuple[list[str], dict[str, int]]:
-    """Usa la mirilla de Tono; identidad solamente si el módulo no existe."""
-    try:
-        from asm.peephole import optimize as optimize_mips
-    except ModuleNotFoundError as exc:
-        if exc.name != "asm.peephole":
-            raise
-        return list(lines), {}
-    return optimize_mips(lines)
-
 
 def _asm_instruction_count(lines: list[str]) -> int:
     """Cuenta instrucciones en .text, excluyendo comentarios y directivas."""
@@ -127,7 +117,7 @@ def analyze(input_stream: InputStream) -> dict:
     symbol_table_json = None
     tac = None
     tac_stats = None
-    asm = asm_raw = asm_stats = activation = None
+    asm = asm_raw = asm_stats = activation = regalloc = None
     if not errors:
         checker = SemanticChecker()
         semantic_errors = checker.check(tree)
@@ -168,6 +158,7 @@ def analyze(input_stream: InputStream) -> dict:
             asm = optimized
             asm_stats = stats
             activation = generated.activation
+            regalloc = generated.regalloc_steps
         except Exception as exc:
             errors.append(f"Error interno al generar el ensamblador: {exc}")
             tac = tac_stats = None
@@ -201,6 +192,7 @@ def analyze(input_stream: InputStream) -> dict:
         "asm_raw": asm_raw,
         "asm_stats": asm_stats,
         "activation": activation,
+        "regalloc": regalloc,
     }
 
 

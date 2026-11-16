@@ -1,22 +1,15 @@
-"""TAC (texto) -> IR tipado.
+"""Parser del TAC: texto -> IR con tipos.
 
-Entrada: las líneas del TAC que genera el Proyecto 2 y el JSON de la tabla de
-símbolos (`symbol_table_json`). Salida: un `Program` (ver ir.py). **Nada de
-esto mira el árbol sintáctico ni el checker**: el ensamblador se genera solo
-a partir del TAC y de la tabla de símbolos.
+Usa solo el TAC y el JSON de la tabla de símbolos. El TAC no tipa los
+temporales, así que se deducen leyendo de arriba hacia abajo:
 
-El TAC no trae tipos para los temporales (`$t1 = a + b` no dice si es entero o
-float), así que aquí se infieren con un recorrido lineal por unidad
-(docs/proyecto3/01-contrato.md §3.1):
+  * variables: el tipo de su símbolo; constantes: su forma;
+  * `a op b`: bool si compara, float si algún operando lo es, str si `+` con
+    string, int en otro caso;
+  * `call f`: tipo de retorno de `f`; `y.f`: tipo del campo; `y[i]`: elemento;
+  * `callvirt`: se resuelve por `vtable obj` + `[slot]` con el tipo estático.
 
-  * variables y parámetros: el `type` de su símbolo;
-  * constantes: por su forma;
-  * `x = y op z`: float si algún operando lo es, `str` si `+` con strings,
-    `bool` si es una comparación, `int` en otro caso;
-  * `call f`: tipo de retorno de `f` (la tabla de símbolos trae `"(a, b) -> r"`);
-  * `x = y.f`: tipo del campo `f` en la clase de `y`;
-  * `x = y[i]`: elemento de `y`;
-  * `callvirt t`: se resuelve `t` por `vtable obj` + `[slot]` (tipo estático).
+Lo que no se deduce queda en `Program.warnings` y `generate_asm` falla.
 """
 
 from __future__ import annotations
@@ -60,6 +53,7 @@ from asm.ir import (
     Ty,
     Unary,
     VTableLoad,
+    VTableSlotLoad,
     array_of,
     obj_of,
 )
@@ -68,13 +62,13 @@ MAIN = "__main"
 WORD = 4
 SAVED = 8
 
-# ── Patrones del TAC ────────────────────────────────────────────────────
+# Una expresión regular por cada forma de línea del TAC.
 _ID = r"[A-Za-z_][A-Za-z0-9_]*"
 _TEMP = r"\$t\d+"
 _NUM = r"-?\d+(?:\.\d+)?"
 _STR = r"\x00S\d+\x00"
 _ATOM = rf"(?:{_TEMP}|{_STR}|{_NUM}|{_ID})"
-_REF = rf"(?:{_TEMP}|{_ID})"  # algo que puede tener campos o índice
+_REF = rf"(?:{_TEMP}|{_ID})"  # Algo que puede tener campos o índice
 _REL = r"(?:==|!=|<=|>=|<|>)"
 _OP = r"(?:==|!=|<=|>=|<|>|\+|-|\*|/|%)"
 
@@ -114,7 +108,6 @@ _RE_FUNCTYPE = re.compile(r"^\((.*)\)\s*->\s*(.+)$")
 _REL_OPS = {"==", "!=", "<", "<=", ">", ">="}
 
 
-# ── Tipos a partir del texto de la tabla de símbolos ─────────────────────
 def ty_from_str(text: Optional[str]) -> Ty:
     """`"integer"`, `"float[]"`, `"Animal"`, … -> Ty."""
     if text is None:
@@ -139,6 +132,7 @@ def ty_from_str(text: Optional[str]) -> Ty:
 
 
 def _split_params(text: str) -> list[str]:
+    """Parte una lista de tipos por las comas de nivel superior."""
     depth, cur, out = 0, "", []
     for ch in text:
         if ch in "(":
@@ -155,7 +149,7 @@ def _split_params(text: str) -> list[str]:
     return out
 
 
-# identificadores que pueden ser variables: no precedidos de `$` (temporales),
+# Identificadores que pueden ser variables: no precedidos de `$` (temporales),
 # `.` (campos) ni de otro carácter de palabra
 _RE_IDENT = re.compile(r"(?<![\w$.])[A-Za-z_]\w*")
 _RE_STRLIT = re.compile(r'"(?:[^"\\]|\\.)*"')
@@ -166,15 +160,16 @@ _TAC_WORDS = {
 }
 
 
-# ── Información sacada de la tabla de símbolos ───────────────────────────
 class _SymbolInfo:
+    """Índice de la tabla de símbolos del Proyecto 2."""
+
     def __init__(self, table: dict):
         self.root = table or {}
         self.func_scopes: dict[str, dict] = {}
         self.classes: dict[str, dict] = {}
         self.func_types: dict[str, tuple[list[Ty], Ty]] = {}
         self.global_symbols: dict[str, dict] = {}
-        # closures: función anidada -> función que la contiene, y variables de
+        # Closures: función anidada -> función que la contiene, y variables de
         # una función que otra anidada usa -> su casa fija (ver `find_captures`)
         self.parent_fn: dict[str, Optional[str]] = {}
         self.captured: dict[tuple[str, str], dict] = {}
@@ -184,7 +179,7 @@ class _SymbolInfo:
             self.func_scopes[self.root["frame"]["label"]] = self.root
         self.global_symbols = self._collect_data(self.root)
 
-    # recorrido completo para indexar funciones, clases y tipos de funciones
+    # Recorrido completo para indexar funciones, clases y tipos de funciones
     def _walk(self, scope: dict, enclosing_class: Optional[str], fn_chain: tuple) -> None:
         for sym in scope.get("symbols", []):
             if sym.get("kind") == "FUNCTION" and sym.get("label"):
@@ -213,8 +208,9 @@ class _SymbolInfo:
         for child in scope.get("children", []):
             self._walk(child, name if kind == "CLASS" else enclosing_class, fn_chain)
 
-    # símbolos de datos de una unidad: propios + los de sus bloques
+    # Símbolos de datos de una unidad: propios + los de sus bloques
     def _collect_data(self, scope: dict) -> dict[str, dict]:
+        """Nombre TAC -> símbolo, de un ámbito y sus bloques."""
         out: dict[str, dict] = {}
         for sym in scope.get("symbols", []):
             if sym.get("kind") in ("VARIABLE", "CONSTANT", "PARAMETER"):
@@ -225,16 +221,17 @@ class _SymbolInfo:
         return out
 
     def unit_symbols(self, label: str) -> dict[str, dict]:
+        """Símbolos visibles desde la función `label`."""
         scope = self.func_scopes.get(label)
         local = self._collect_data(scope) if scope is not None else {}
         merged = dict(self.global_symbols)
-        # variables de funciones que contienen a esta, de la más externa a la más
+        # Variables de funciones que contienen a esta, de la más externa a la más
         # cercana (la más cercana tapa a las demás, como en el alcance léxico)
         for anc in reversed(self.ancestors(label)):
             for (owner, name), sym in self.captured.items():
                 if owner == anc:
                     merged[name] = sym
-        # las propias, y las que otra función anidada captura pasan a su casa fija
+        # Las propias, y las que otra función anidada captura pasan a su casa fija
         for name in list(local):
             if (label, name) in self.captured:
                 local[name] = self.captured[(label, name)]
@@ -251,15 +248,7 @@ class _SymbolInfo:
         return out
 
     def find_captures(self, lines: list[str]) -> None:
-        """Closures: una función anidada que usa una variable (o parámetro) de la
-        función que la contiene no puede alcanzar el marco de esta. Esas
-        variables se guardan en una casa fija del área global (`gp+N`), tanto
-        para la función que las declara como para las anidadas.
-
-        Limitación: la casa es única, así que no vale si la función que declara
-        la variable se vuelve a llamar mientras otra activación suya sigue viva
-        (recursión con closure).
-        """
+        """Busca las variables que usa una función anidada y les da una casa fija en `$gp`."""
         bodies: dict[str, list[str]] = {}
         current: Optional[str] = None
         for raw in lines:
@@ -285,7 +274,7 @@ class _SymbolInfo:
             for name in sorted(refs - _TAC_WORDS):
                 if name in own:
                     continue
-                for anc in ancestors:  # la más cercana que la declare
+                for anc in ancestors:  # La más cercana que la declare
                     data = self._collect_data(self.func_scopes[anc]) if anc in self.func_scopes else {}
                     if name not in data:
                         continue
@@ -310,6 +299,7 @@ class _SymbolInfo:
         return None
 
     def field_type(self, cls: Optional[str], name: str) -> Ty:
+        """Tipo del campo `name` de `cls`, buscándolo también en sus clases padre."""
         seen = set()
         while cls and cls not in seen:
             seen.add(cls)
@@ -322,14 +312,16 @@ class _SymbolInfo:
         return UNKNOWN
 
     def find_field_owner(self, name: str) -> Optional[str]:
+        """Primera clase que declara un campo `name`."""
         for cname in self.classes:
             if self.field(cname, name):
                 return cname
         return None
 
 
-# ── Parser de una unidad (función o método) ──────────────────────────────
 class _UnitParser:
+    """Convierte las líneas de una función o método en instrucciones del IR."""
+
     def __init__(self, label: str, params: list[str], info: _SymbolInfo, warnings: list):
         self.label = label
         self.params = params
@@ -338,8 +330,8 @@ class _UnitParser:
         self.symbols = info.unit_symbols(label)
         self.owner = label.split(".")[0] if "." in label else None
         self.env: dict[str, Ty] = {}
-        self.vt_class: dict[str, str] = {}  # temporal -> clase de la vtable que contiene
-        self.method_of: dict[str, str] = {}  # temporal -> etiqueta del método (slot)
+        self.vt_class: dict[str, str] = {}  # Temporal -> clase de la vtable que contiene
+        self.method_of: dict[str, str] = {}  # Temporal -> etiqueta del método (slot)
         self.pending: list[Operand] = []
         self.max_temp = 0
         self.strings: list[str] = []
@@ -352,36 +344,38 @@ class _UnitParser:
                 self.env[name] = ty_from_str(sym["type"]) if sym else UNKNOWN
             self.param_types[name] = self.env[name]
 
-    # -- operandos -------------------------------------------------------
     def warn(self, msg: str) -> None:
+        """Anota algo que el parser tuvo que adivinar."""
         self.warnings.append(f"{self.label}: {msg}")
 
     def operand(self, text: str) -> Operand:
+        """Operando que se lee: constante, temporal o variable, con su tipo."""
         text = text.strip()
         if text in ("true", "false"):
-            return Operand(text, "const", BOOL, text == "true", 4)
+            return Operand(text, "const", BOOL, text == "true")
         if text == "null":
-            return Operand(text, "const", NULL, None, 4)
+            return Operand(text, "const", NULL, None)
         if text.startswith("\x00S"):
             lit = self.strings[int(text[2:-1])]
-            return Operand(lit, "const", STR, lit[1:-1], 4)
+            return Operand(lit, "const", STR, lit[1:-1])
         if _RE_NUMBER.match(text):
             if "." in text:
-                return Operand(text, "const", FLOAT, float(text), 4)
-            return Operand(text, "const", INT, int(text), 4)
+                return Operand(text, "const", FLOAT, float(text))
+            return Operand(text, "const", INT, int(text))
         m = _RE_TEMPNUM.match(text)
         if m:
             self.max_temp = max(self.max_temp, int(m.group(1)))
-            return Operand(text, "temp", self.env.get(text, UNKNOWN), None, 4)
+            if text not in self.env:
+                self.warn(f"se lee el temporal {text} antes de definirlo")
+            return Operand(text, "temp", self.env.get(text, UNKNOWN), None)
         sym = self.symbols.get(text)
-        size = int(sym["size"]) if sym and sym.get("size") else 4
-        if text in self.params:
-            size = 4  # los parámetros siempre ocupan una palabra
         ty = self.env.get(text)
         if ty is None:
             ty = ty_from_str(sym["type"]) if sym else UNKNOWN
             self.env[text] = ty
-        return Operand(text, "var", ty, None, size)
+            if sym is None:
+                self.warn(f"{text} no está en la tabla de símbolos")
+        return Operand(text, "var", ty, None)
 
     def dest(self, text: str, ty: Ty) -> Operand:
         """Operando destino con el tipo ya calculado."""
@@ -393,7 +387,7 @@ class _UnitParser:
                 ty = INT
                 self.warn(f"tipo desconocido para {text}; se asume int")
             self.env[text] = ty
-            return Operand(text, "temp", ty, None, 4)
+            return Operand(text, "temp", ty, None)
         op = self.operand(text)
         known = op.ty
         if known.kind == "unknown":
@@ -401,9 +395,9 @@ class _UnitParser:
             self.env[text] = op.ty
         return op
 
-    # -- inferencia ------------------------------------------------------
     @staticmethod
     def bin_type(a: Ty, op: str, b: Ty) -> Ty:
+        """Tipo de `a op b`."""
         if op in _REL_OPS:
             return BOOL
         if a.kind == "float" or b.kind == "float":
@@ -413,14 +407,15 @@ class _UnitParser:
         return INT
 
     def class_of(self, op: Operand) -> Optional[str]:
+        """Clase del objeto que representa `op`, si es un objeto."""
         return op.ty.cls if op.ty.kind == "obj" else None
 
-    # -- una línea -------------------------------------------------------
     def parse_line(self, raw: str) -> Optional[Instr]:
+        """Una línea del TAC -> una instrucción del IR (`None` si está vacía)."""
         line = raw.strip()
         if not line:
             return None
-        # los strings se sustituyen por marcadores para no confundir operadores
+        # Los strings se sustituyen por marcadores para no confundir operadores
         self.strings = []
 
         def hide(m: re.Match) -> str:
@@ -435,6 +430,7 @@ class _UnitParser:
         return ins
 
     def _dispatch(self, t: str) -> Optional[Instr]:  # noqa: C901 (es una tabla de formas)
+        """Prueba cada forma de línea del TAC hasta que una encaja."""
         m = _RE_LABEL.match(t)
         if m:
             return Label(m.group(1))
@@ -484,8 +480,8 @@ class _UnitParser:
             return self._assign(m.group(1), m.group(2).strip())
         return None
 
-    # -- llamadas --------------------------------------------------------
     def _take_args(self, n: int) -> list[Operand]:
+        """Los argumentos de la llamada son los `param` pendientes."""
         if len(self.pending) != n:
             self.warn(f"call con {n} argumentos pero {len(self.pending)} param pendientes")
         args = self.pending[-n:] if n else []
@@ -493,17 +489,20 @@ class _UnitParser:
         return args
 
     def _ret_type(self, label: Optional[str]) -> Ty:
+        """Tipo de retorno de la función `label`, según la tabla de símbolos."""
         if label and label in self.info.func_types:
             return self.info.func_types[label][1]
         return UNKNOWN
 
     def _call(self, m: re.Match) -> Instr:
+        """`x = call f, n`."""
         callee, n = m.group(2), int(m.group(3))
         args = self._take_args(n)
         dst = self.dest(m.group(1), self._ret_type(callee)) if m.group(1) else None
         return Call(dst, callee, args)
 
     def _callvirt(self, m: re.Match) -> Instr:
+        """`x = callvirt t, n`."""
         target = self.operand(m.group(2))
         n = int(m.group(3))
         args = self._take_args(n)
@@ -511,8 +510,8 @@ class _UnitParser:
         dst = self.dest(m.group(1), self._ret_type(label)) if m.group(1) else None
         return CallVirt(dst, target, args, static_target=label)
 
-    # -- campos ----------------------------------------------------------
     def _field_info(self, obj: Operand, name: str) -> tuple[Optional[str], int, int]:
+        """`(clase, offset, tamaño)` del campo `name` de `obj`."""
         cls = self.class_of(obj)
         f = self.info.field(cls, name)
         if f is None:
@@ -526,13 +525,15 @@ class _UnitParser:
         return cls, int(f["offset"]), int(f.get("size", 4))
 
     def _field_store(self, m: re.Match) -> Instr:
+        """`obj.campo = src`."""
         obj = self.operand(m.group(1))
         src = self.operand(m.group(3))
         cls, off, size = self._field_info(obj, m.group(2))
-        return FieldStore(obj, m.group(2), src, offset=off, fsize=size)
+        ty = self.info.field_type(cls, m.group(2))
+        return FieldStore(obj, m.group(2), src, offset=off, fsize=size, ty=ty)
 
-    # -- asignaciones ----------------------------------------------------
     def _assign(self, dst_text: str, rest: str) -> Optional[Instr]:  # noqa: C901
+        """Una asignación `dst = <expresión>`."""
         m = _RE_NEWARRAY.match(rest)
         if m:
             n = self.operand(m.group(1))
@@ -591,24 +592,25 @@ class _UnitParser:
         return None
 
     def _vtable_entry(self, dst_text: str, base: Operand, idx: Operand) -> Instr:
-        """`$t = $v[k]` con `$v` una tabla de métodos: acceso crudo."""
+        """`$t = $v[k]` con `$v` una tabla de métodos: el método del slot `k`."""
+        if not (idx.is_const and isinstance(idx.value, int)):
+            raise ValueError(f"{self.label}: el slot de una tabla de métodos debe ser constante")
         dst = self.dest(dst_text, INT)
         cls = self.vt_class.get(base.text)
-        if cls and idx.is_const:
+        if cls:
             vt = self.info.classes.get(cls, {}).get("layout", {}).get("vtable", [])
             for entry in vt:
                 if entry.get("slot") == idx.value:
                     self.method_of[dst.text] = entry["label"]
-        return IndexLoad(dst, base, idx)
+        return VTableSlotLoad(dst, base, idx.value)
 
 
 class _Param(Instr):
     """Marcador interno: un `param` ya quedó en `pending`."""
 
 
-# ── API ─────────────────────────────────────────────────────────────────
 def parse_tac(lines: list[str], symbol_table: dict) -> Program:
-    """Convierte el TAC en un `Program` tipado."""
+    """Convierte el TAC en un `Program` tipado: la entrada de este módulo."""
     info = _SymbolInfo(symbol_table)
     info.find_captures(lines)
     warnings: list[str] = []
@@ -666,6 +668,7 @@ def parse_tac(lines: list[str], symbol_table: dict) -> Program:
 
 def _parse_function(label: str, params: list[str], body_lines: list[str],
                     info: _SymbolInfo, warnings: list) -> FuncUnit:
+    """Construye una `FuncUnit`."""
     up = _UnitParser(label, params, info, warnings)
     body: list[Instr] = []
     for raw in body_lines:
@@ -677,7 +680,7 @@ def _parse_function(label: str, params: list[str], body_lines: list[str],
     frame = dict((scope or {}).get("frame") or {})
     locals_size = _round(int(frame.get("locals_size", 0)))
     temps = max(int(frame.get("temps", 0)), up.max_temp)
-    params_size = WORD * len(params)  # cada parámetro ocupa una palabra
+    params_size = WORD * len(params)  # Cada parámetro ocupa una palabra
     frame = {
         "label": label,
         "params_size": params_size,
@@ -691,10 +694,12 @@ def _parse_function(label: str, params: list[str], body_lines: list[str],
         label=label, params=params, body=body, frame=frame,
         symbols=up.symbols, param_types=up.param_types,
         owner_class=up.owner if "." in label else None,
+        captured=sorted(n for (owner, n) in info.captured if owner == label),
     )
 
 
 def _round(n: int) -> int:
+    """Redondea hacia arriba a múltiplo de 4."""
     return (n + WORD - 1) // WORD * WORD
 
 
@@ -709,4 +714,5 @@ def _globals_end(info: _SymbolInfo) -> int:
 
 
 def _globals_size(info: _SymbolInfo) -> int:
+    """Bytes de la zona de globales."""
     return max(WORD, _globals_end(info), info.static_end)

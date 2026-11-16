@@ -1,8 +1,8 @@
-"""Emisor de MIPS: secciones `.data` / `.text`, etiquetas y nombres seguros.
+"""Emisor de MIPS: acumula `.data` y `.text` y nombra etiquetas.
 
-Ver docs/proyecto3/01-contrato.md §1 y §5. Los selectores nunca arman el
-archivo a mano: llaman a `ins`, `label`, `comment`, `string`, `float_`, `data`
-y `new_label`.
+Los selectores escriben con `ins`, `label`, `comment`, `string`, `float_`,
+`data` y `new_label`. Las `mangle_*` convierten nombres del TAC en etiquetas
+válidas (`Animal.hablar` -> `f_Animal__hablar`).
 """
 
 from __future__ import annotations
@@ -12,10 +12,8 @@ import re
 INDENT = "    "
 
 
-# ── Nombres seguros ─────────────────────────────────────────────────────
 def mangle_func(name: str) -> str:
-    """`fact` -> `f_fact`; `Animal.hablar` -> `f_Animal__hablar`;
-    `__main` -> `f___main`."""
+    """Nombre MIPS de una función."""
     return "f_" + name.replace(".", "__")
 
 
@@ -25,17 +23,17 @@ def mangle_ret(name: str) -> str:
 
 
 def mangle_vtable(cls: str) -> str:
+    """Etiqueta de la tabla de métodos de una clase: `Animal` -> `vt_Animal`."""
     return "vt_" + cls
 
 
 def mangle_tac_label(label: str) -> str:
-    """Las etiquetas del TAC (`L12`) son únicas en todo el programa y se
-    emiten tal cual."""
+    """Las etiquetas del TAC son únicas en el programa y se emiten igual."""
     return label
 
 
 class AsmEmitter:
-    """Acumula el `.data` y el `.text` de un programa."""
+    """Acumula el `.data` y el `.text` del programa."""
 
     def __init__(self, tac_comments: bool = True) -> None:
         self.tac_comments = tac_comments
@@ -45,15 +43,16 @@ class AsmEmitter:
         self._floats: dict[float, str] = {}
         self._label_counter = 0
 
-    # -- .text -----------------------------------------------------------
     def ins(self, text: str) -> None:
         """`add $t0, $t1, $t2` (se agrega con sangría)."""
         self._text.append(INDENT + text)
 
     def label(self, name: str) -> None:
+        """Etiqueta en `.text`."""
         self._text.append(f"{name}:")
 
     def comment(self, text: str) -> None:
+        """Comentario en `.text`, con la misma sangría que las instrucciones."""
         self._text.append(f"{INDENT}# {text}")
 
     def tac_comment(self, text: str) -> None:
@@ -62,18 +61,15 @@ class AsmEmitter:
             self.comment(f"TAC: {text.strip()}")
 
     def directive(self, text: str) -> None:
+        """Directiva del ensamblador en `.text` (`.align`, `.globl`...)."""
         self._text.append(f"{INDENT}{text}")
 
-    # -- .data -----------------------------------------------------------
     def data(self, line: str) -> None:
         """Línea cruda en `.data` (vtables, mensajes del runtime)."""
         self._data.append(line)
 
     def string(self, literal: str) -> str:
-        """Registra un literal string y devuelve su etiqueta.
-
-        `literal` es el texto del TAC con comillas (`"hola"`); se deduplica.
-        """
+        """Registra un literal string y devuelve su etiqueta."""
         if literal not in self._strings:
             label = f"str_{len(self._strings)}"
             self._strings[literal] = label
@@ -81,20 +77,20 @@ class AsmEmitter:
         return self._strings[literal]
 
     def float_(self, value: float) -> str:
+        """Registra una constante float en `.data` y devuelve su etiqueta."""
         if value not in self._floats:
             label = f"flt_{len(self._floats)}"
             self._floats[value] = label
             self._data.append(f"{label}: .float {value!r}")
         return self._floats[value]
 
-    # -- etiquetas internas ----------------------------------------------
     def new_label(self, kind: str) -> str:
         """Etiqueta única `__<kind>_<n>` para saltos internos de un selector."""
         self._label_counter += 1
         return f"__{kind}_{self._label_counter}"
 
-    # -- resultado -------------------------------------------------------
     def lines(self) -> list[str]:
+        """El `.s` completo: `.data` y luego `.text`."""
         out = ["        .data"]
         out += self._data
         out += ["", "        .text", "        .globl main"]

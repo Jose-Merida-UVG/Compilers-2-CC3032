@@ -1,18 +1,13 @@
-"""Registros de activación: dónde vive cada valor y cómo se arma el marco.
+"""Marcos de activación: dónde vive cada valor.
 
-Contrato: docs/proyecto3/01-contrato.md §2. La pila crece hacia abajo:
+        fp+8+4*i              argumento i (0 = primer parámetro o `this`)
+        fp+4                  $ra guardado
+        fp+0                  $fp del llamador       <- $fp apunta aquí
+        fp-4 ...              locales
+        fp-(locals_size+4N)   temporal $tN
 
-        fp+8+4*i   argumento i (i = 0 es el primer parámetro / `this`)
-        fp+4       $ra guardado
-        fp+0       $fp del llamador            <- $fp apunta aquí
-        fp-4 ...   locales (locals_size)
-        fp-(locals_size+4N)   temporal $tN (N desde 1)
-
-Todas las "casas" se direccionan relativas a `$fp` o `$gp`, **nunca** a
-`$sp`: así mover `$sp` al empujar argumentos no invalida ninguna dirección.
-
-`FrameInfo.home(op)` es el único lugar que decide direcciones; los
-selectores y el asignador de registros solo lo consultan.
+Todo se direcciona con `$fp` o `$gp`, nunca con `$sp`, para poder mover `$sp`
+al empujar argumentos. `FrameInfo.home` es el único que decide direcciones.
 """
 
 from __future__ import annotations
@@ -31,17 +26,19 @@ _TEMP = re.compile(r"^\$t(\d+)$")
 
 @dataclass(frozen=True)
 class Home:
-    """Casa en memoria de un valor: `offset($base)`."""
+    """Casa en memoria de un valor."""
 
     base: str  # 'gp' | 'fp'
     offset: int
     size: int = 4
 
     def mem(self) -> str:
+        """El operando de memoria listo para `lw`/`sw`: `-8($fp)`."""
         return f"{self.offset}(${self.base})"
 
     @property
     def address(self) -> str:
+        """La misma dirección como texto para el IDE: `fp-8`, `gp+4`."""
         sign = "+" if self.offset >= 0 else "-"
         return f"{self.base}{sign}{abs(self.offset)}"
 
@@ -55,25 +52,37 @@ class FrameInfo:
         self.locals_size = int(unit.frame.get("locals_size", 0))
         self.temps = int(unit.frame.get("temps", 0))
         self.temps_size = WORD * self.temps
-        self.alloc = self.locals_size + self.temps_size  # bytes bajo $fp
+        # Valores previos de las variables capturadas, para restaurarlos al salir
+        self.caps_size = WORD * len(unit.captured)
+        self.alloc = self.locals_size + self.temps_size + self.caps_size  # Bytes bajo $fp
         self.fn_label = mangle_func(unit.label)
         self.ret_label = mangle_ret(unit.label)
 
-    # -- casas -----------------------------------------------------------
     def temp_home(self, n: int) -> Home:
+        """Casa del temporal `$tN`: justo debajo de las locales."""
         return Home("fp", -(self.locals_size + WORD * n), WORD)
 
+    def cap_home(self, j: int) -> Home:
+        """Casa donde se guarda el valor previo de la j-ésima variable capturada."""
+        return Home("fp", -(self.locals_size + self.temps_size + WORD * (j + 1)), WORD)
+
+    def _capture_addr(self, name: str) -> int:
+        """Offset en `$gp` de la casa fija de una variable capturada."""
+        return _parse_address(self.unit.symbols[name]["address"])[1]
+
     def param_home(self, index: int) -> Home:
+        """Casa del parámetro número `index`."""
         return Home("fp", SAVED + WORD * index, WORD)
 
     def home(self, op: Operand) -> Home:
+        """Casa en memoria de un operando que no es constante."""
         if op.is_const:
             raise ValueError(f"{op.text}: una constante no tiene casa en memoria")
         m = _TEMP.match(op.text)
         if m:
             return self.temp_home(int(m.group(1)))
         sym = self.unit.symbols.get(op.text)
-        if sym is not None and sym.get("static"):  # capturada por una función anidada
+        if sym is not None and sym.get("static"):  # Capturada por una función anidada
             base, off = _parse_address(sym["address"])
             return Home(base, off, int(sym.get("size") or WORD))
         if op.text in self.unit.params:
@@ -85,10 +94,11 @@ class FrameInfo:
         return Home(base, off, int(sym.get("size") or WORD))
 
     def mem(self, op: Operand) -> str:
+        """Atajo: `home(op).mem()`."""
         return self.home(op).mem()
 
-    # -- prólogo / epílogo ----------------------------------------------
     def emit_prologue(self, asm: AsmEmitter) -> None:
+        """Guarda `$ra` y `$fp`, fija `$fp` y reserva el espacio del marco."""
         asm.label(self.fn_label)
         asm.ins("addiu $sp, $sp, -8")
         asm.ins("sw    $ra, 4($sp)")
@@ -96,32 +106,37 @@ class FrameInfo:
         asm.ins("move  $fp, $sp")
         if self.alloc:
             asm.ins(f"addiu $sp, $sp, -{self.alloc}")
+        # La casa fija es una sola: una llamada recursiva pisaría el valor de la
+        # activación anterior. Se guarda aquí y se restaura en el epílogo.
+        for j, name in enumerate(self.unit.captured):
+            asm.ins(f"lw    $v1, {self._capture_addr(name)}($gp)")
+            asm.ins(f"sw    $v1, {self.cap_home(j).mem()}")
         for i, name in enumerate(self.unit.params):
             sym = self.unit.symbols.get(name)
             if sym is not None and sym.get("static"):
-                # parámetro que una función anidada usa: pasa de la pila a su casa fija
+                # Parámetro que una función anidada usa: pasa de la pila a su casa fija
                 _, off = _parse_address(sym["address"])
                 asm.ins(f"lw    $v1, {self.param_home(i).mem()}")
                 asm.ins(f"sw    $v1, {off}($gp)")
 
     def emit_epilogue(self, asm: AsmEmitter) -> None:
+        """Etiqueta de salida de los `return` y deshacer el prólogo."""
         asm.label(self.ret_label)
+        for j, name in enumerate(self.unit.captured):
+            asm.ins(f"lw    $v1, {self.cap_home(j).mem()}")
+            asm.ins(f"sw    $v1, {self._capture_addr(name)}($gp)")
         asm.ins("move  $sp, $fp")
         asm.ins("lw    $ra, 4($sp)")
         asm.ins("lw    $fp, 0($sp)")
         asm.ins("addiu $sp, $sp, 8")
         asm.ins("jr    $ra")
 
-    # -- datos para el IDE (los usa activation.py) -----------------------
     def slots(self) -> list[dict]:
-        """Casillas del registro de activación, de direcciones altas a bajas.
-
-        Cada una: {"name", "kind": param|saved|local|temp, "offset", "address",
-        "size"}; `offset` es relativo a `$fp`.
-        """
+        """Casillas del registro de activación, de direcciones altas a bajas."""
         slots: list[dict] = []
 
         def add(name: str, kind: str, home: Home) -> None:
+            """Agrega una casilla a la lista."""
             slots.append({
                 "name": name, "kind": kind, "offset": home.offset,
                 "address": home.address, "size": home.size,
@@ -138,6 +153,8 @@ class FrameInfo:
                 add(name, "local", Home(base, off, int(sym.get("size") or WORD)))
         for n in range(1, self.temps + 1):
             add(f"$t{n}", "temp", self.temp_home(n))
+        for j, name in enumerate(self.unit.captured):
+            add(f"{name} (previa)", "saved", self.cap_home(j))
         slots.sort(key=lambda s: -s["offset"])
         return slots
 

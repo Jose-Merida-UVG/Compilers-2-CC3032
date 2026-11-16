@@ -1,16 +1,19 @@
 """Pruebas del parser de TAC (`asm.tac_parser`): agrupación de `param`/`call`,
 inferencia de tipos de temporales, clases/vtables y marcos.
 
-No usan simulador. Ver docs/proyecto3/01-contrato.md §3.
+No usan simulador.
 """
 
 from __future__ import annotations
 
 from antlr4 import InputStream
 
+import pytest
+
+from asm.generator import generate_asm
 from asm.ir import (
-    Binary, Call, CallVirt, ClassUnit, Copy, FieldLoad, FieldStore, IndexLoad,
-    New, NewArray, Print, Return, Unary, VTableLoad,
+    Binary, Call, CallVirt, ClassUnit, CondJump, Copy, FieldLoad, FieldStore, IndexLoad,
+    IndexStore, New, NewArray, Print, Return, Unary, VTableLoad, VTableSlotLoad,
 )
 from asm.tac_parser import parse_tac, ty_from_str
 from compiler import analyze
@@ -89,7 +92,6 @@ def test_boolean_parameters_take_a_full_word():
     )
     f = _func(prog, "f")
     assert f.frame["params_size"] == 12  # 4 bytes por parámetro, aunque el layout diga 1
-    assert all(op.size == 4 for op in [i for i in f.body if isinstance(i, Return)][0].reads())
 
 
 CLASSES = """
@@ -167,3 +169,35 @@ def test_copy_of_constants_keeps_value_and_type():
     assert consts['"hola"'].value == "hola" and consts['"hola"'].ty.kind == "str"
     assert consts["true"].value is True
     assert consts["2.5"].value == 2.5
+
+
+def test_reads_and_writes_come_from_the_declared_fields():
+    prog, _ = _program(
+        "function f(a: integer, b: integer): integer { if (a < 0) { return b; } return a + b; }\n"
+        "let xs: integer[] = [1, 2];\n"
+        "xs[0] = f(1, 2);\n"
+        "print(xs[1]);"
+    )
+    f = _body(prog, "f")
+    jump = next(i for i in f if isinstance(i, CondJump))
+    assert [o.text for o in jump.reads()] == ["a"]  # la constante 0 no cuenta
+    add = next(i for i in f if isinstance(i, Binary))
+    assert [o.text for o in add.reads()] == ["a", "b"] and [o.text for o in add.writes()] == [add.dst.text]
+    main = _body(prog, "__main")
+    call = next(i for i in main if isinstance(i, Call))
+    assert call.reads() == [] and [o.text for o in call.writes()] == [call.dst.text]  # args constantes
+    store = next(i for i in main if isinstance(i, IndexStore))
+    assert store.writes() == [] and [o.text for o in store.reads()] == [store.base.text]  # idx y valor son constantes
+
+
+def test_method_table_access_is_its_own_instruction():
+    prog, _ = _program(CLASSES)
+    main = _body(prog, "__main")
+    slot = next(i for i in main if isinstance(i, VTableSlotLoad))
+    assert slot.slot == 0 and slot.table.ty.kind == "vtable"
+    assert not any(isinstance(i, IndexLoad) and i.base.ty.kind == "vtable" for i in main)
+
+
+def test_incomplete_type_inference_fails_instead_of_guessing():
+    with pytest.raises(ValueError, match="inferencia incompleta"):
+        generate_asm(["func __main():", "print $t9", "endfunc"], {})

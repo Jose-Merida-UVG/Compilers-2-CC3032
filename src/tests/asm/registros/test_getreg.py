@@ -1,7 +1,7 @@
 """Pruebas unitarias de `getReg()` (`asm.regalloc`), sin simulador.
 
 Cada prueba arma un bloque de instrucciones a mano y mira el texto emitido y
-la traza de decisiones. Ver docs/proyecto3/01-contrato.md §4.
+la traza de decisiones.
 """
 
 from __future__ import annotations

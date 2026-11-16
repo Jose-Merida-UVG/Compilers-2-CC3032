@@ -1,4 +1,4 @@
-"""main.py --asm y server.py /api/run con el ensamblador (contrato P3 §8).
+"""main.py --asm y server.py /api/run con el ensamblador.
 
 `compiler.analyze` ya se prueba en `tests/test_compiler_integration.py`; aquí
 solo se verifica lo que viene después: lo que imprime el CLI, lo que devuelve y
@@ -83,6 +83,7 @@ def test_server_devuelve_asm_stats_y_activacion(cliente):
     assert r["asm"] and r["asmRaw"]
     assert r["asmStats"]["instructions"] > 0
     assert isinstance(r["activation"], dict)
+    assert r["regalloc"] and {"func", "line", "decisions", "regs", "dirty"} <= set(r["regalloc"][0])
 
 
 def test_server_guarda_el_s_con_el_nombre_que_espera_el_ide(cliente):

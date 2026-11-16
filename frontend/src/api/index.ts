@@ -1,4 +1,4 @@
-import type { FileNode, RunOutput } from "../types";
+import type { ExecOutput, FileNode, RunOutput } from "../types";
 
 const BASE = "/api";
 
@@ -43,6 +43,10 @@ export const api = {
 
   createDirectory: (path: string) =>
     req<void>("/directory", { ...json({ path }), method: "PUT" }),
+
+  /** Compila el archivo y ejecuta el MIPS en MARS. */
+  exec: (inputPath: string) =>
+    req<ExecOutput>("/exec", json({ inputPath })),
 
   run: async (inputPath: string): Promise<RunOutput> => {
     const result = await req<RunOutput>("/run", json({ inputPath }));

@@ -10,6 +10,19 @@ import "./App.css";
  
 type Pane = 0 | 1;
 
+/** Errores del compilador con su línea y columna (si el mensaje las trae). */
+function toDiagnostics(errors: string[], path: string): CompilerDiagnostic[] {
+  return errors.map((message) => {
+    const position = /en línea (\d+), columna (\d+):/.exec(message);
+    return {
+      path,
+      message,
+      line: position ? Number(position[1]) : null,
+      column: position ? Number(position[2]) + 1 : null,
+    };
+  });
+}
+
 export default function App() {
   const [fileTree, setFileTree] = useState<FileNode[]>([]);
   const [tabs, setTabs] = useState<EditorTab[]>([]);
@@ -187,7 +200,7 @@ export default function App() {
  
   const saveTab = useCallback(async (path: string) => {
     const tab = tabs.find((t) => t.path === path);
-    if (!tab || tab.treeData || tab.symbolTableData || tab.tacData || tab.asmData || tab.activationData) return; // pestañas de solo lectura
+    if (!tab || tab.treeData || tab.symbolTableData || tab.tacData || tab.asmData || tab.activationData || tab.regallocData) return; // pestañas de solo lectura
     try {
       await api.writeFile(path, tab.content);
       setTabs((prev) => prev.map((t) => t.path === path ? { ...t, isDirty: false } : t));
@@ -198,6 +211,50 @@ export default function App() {
     }
   }, [tabs, appendTerminal, refreshTree]);
  
+  // ── Ejecutar (compila y corre el MIPS en MARS) ────────────────────────────────
+  const [executing, setExecuting] = useState(false);
+
+  const executeFile = useCallback(async (inputPath: string) => {
+    const tab = tabs.find((t) => t.path === inputPath);
+    if (tab?.isDirty) {
+      try {
+        await api.writeFile(inputPath, tab.content);
+        setTabs((prev) => prev.map((t) => t.path === inputPath ? { ...t, isDirty: false } : t));
+      } catch (e: any) {
+        appendTerminal(`Save error: ${e.message}`);
+        return;
+      }
+    }
+
+    setExecuting(true);
+    appendTerminal(`\n▶ Ejecutando ${inputPath}`);
+    try {
+      const res = await api.exec(inputPath);
+      if (res.errors.length > 0) {
+        setDiagnostics(toDiagnostics(res.errors, inputPath));
+        res.errors.forEach((e) => appendTerminal(e));
+        appendTerminal("Error: no se ejecutó, el programa tiene errores de compilación.");
+        return;
+      }
+      setDiagnostics([]);
+      if (!res.available) {
+        appendTerminal("Error: el servidor no tiene java o Mars4_5.jar (MARS_JAR o src/tools/Mars4_5.jar).");
+        return;
+      }
+      res.output.replace(/\n$/, "").split("\n").forEach((l) => appendTerminal(l));
+      res.stderr.split("\n").filter(Boolean).forEach((l) => appendTerminal(`Error: ${l}`));
+      if (res.timedOut) {
+        appendTerminal(`Error: se cortó la ejecución, pasó de ${res.timeout} s (¿ciclo infinito?).`);
+      } else {
+        appendTerminal(`── terminó (código ${res.exitCode}) ──`);
+      }
+    } catch (e: any) {
+      appendTerminal(`Error: ${e.message}`);
+    } finally {
+      setExecuting(false);
+    }
+  }, [tabs, appendTerminal]);
+
   // ── Run (léxico, sintaxis, semántica y TAC) ───────────────────────────────────
   const runFile = useCallback(async (inputPath: string) => {
     const tab = tabs.find((t) => t.path === inputPath);
@@ -218,25 +275,13 @@ export default function App() {
     appendTerminal(`\n▶ Compilando ${inputPath}`);
     try {
       const result = await api.run(inputPath);
-      setDiagnostics(result.errors.map((message) => {
-        const position = /en línea (\d+), columna (\d+):/.exec(message);
-
-        return {
-          path: inputPath,
-          message,
-          line: position ? Number(position[1]) : null,
-          column: position ? Number(position[2]) + 1 : null,
-        };
-      }));
+      setDiagnostics(toDiagnostics(result.errors, inputPath));
       result.lines.forEach((l) => appendTerminal(l));
       const fileName = inputPath.split("/").pop() ?? "";
       const base = fileName.replace(/\.cps$/, "");
-      const saved = result.asm
-        ? ".out, .tree, .symbols, .tac y .s"
-        : result.tac
-        ? ".out, .tree, .symbols y .tac"
-        : result.symbolTable ? ".out, .tree y .symbols" : ".out y .tree";
-      appendTerminal(`── salida guardada en output/${base}/ (${saved}) ──`);
+      if (result.tac) {
+        appendTerminal(`── guardado en output/${base}/ (${result.asm ? ".tac y .s" : ".tac"}) ──`);
+      }
 
       const placeResult = (path: string) =>
         setPaneOf((prev) => (prev[path] === resultPane ? prev : { ...prev, [path]: resultPane }));
@@ -271,6 +316,7 @@ export default function App() {
       const savedTacPath = `output/${base}/${fileName}.tac`;
       const asmTabPath = `${inputPath}::asm`;
       const activationTabPath = `${inputPath}::activation`;
+      const regallocTabPath = `${inputPath}::regalloc`;
       const savedAsmPath = `output/${base}/${fileName}.s`;
 
       if (result.errors.length > 0 || result.tac === null) {
@@ -285,7 +331,8 @@ export default function App() {
 
         setTabs((prev) => prev.filter(
           (tab) => tab.path !== tacTabPath && tab.path !== savedTacPath
-            && tab.path !== asmTabPath && tab.path !== activationTabPath && tab.path !== savedAsmPath
+            && tab.path !== asmTabPath && tab.path !== activationTabPath && tab.path !== regallocTabPath
+            && tab.path !== savedAsmPath
         ));
         activate(inputPath, sourcePane);
       } else {
@@ -363,6 +410,23 @@ export default function App() {
           setTabs((prev) => prev.filter((tab) => tab.path !== activationTabPath));
         }
 
+        if (Array.isArray(result.regalloc) && result.regalloc.length > 0) {
+          const regallocTab: EditorTab = {
+            path: regallocTabPath,
+            label: `registros · ${base}`,
+            content: "",
+            isDirty: false,
+            regallocData: result.regalloc,
+          };
+          setTabs((prev) => {
+            const index = prev.findIndex((tab) => tab.path === regallocTabPath);
+            if (index >= 0) { const next = [...prev]; next[index] = regallocTab; return next; }
+            return [...prev, regallocTab];
+          });
+        } else {
+          setTabs((prev) => prev.filter((tab) => tab.path !== regallocTabPath));
+        }
+
         // Fuente a un lado y el resultado más reciente (ensamblador) al otro; el foco queda en la fuente
         setActiveByPane((prev) => (sourcePane === 0 ? [inputPath, resultTabPath] : [resultTabPath, inputPath]));
         setFocusedPane(sourcePane);
@@ -386,7 +450,7 @@ export default function App() {
     const path = activeByPane[pane];
     const tab = tabs.find((t) => t.path === path);
     return !!path && path.endsWith(".cps") && !tab?.treeData && !tab?.symbolTableData && !tab?.tacData
-      && !tab?.asmData && !tab?.activationData;
+      && !tab?.asmData && !tab?.activationData && !tab?.regallocData;
   };
  
   return (
@@ -426,6 +490,8 @@ export default function App() {
                 onChangeContent={updateTabContent}
                 onSave={saveTab}
                 onRunFile={canRun(pane) ? runFile : undefined}
+                onExecFile={canRun(pane) ? executeFile : undefined}
+                executing={executing}
                 location={editorLocation}
               />
             </Fragment>
