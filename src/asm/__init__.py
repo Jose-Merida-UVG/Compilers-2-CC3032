@@ -1,4 +1,4 @@
-"""TAC del Proyecto 2 -> MIPS para MARS.
+"""TAC del Proyecto 2 -> MIPS para MARS. La guía completa está en `map.md`.
 
 Términos: IR (el TAC como objetos, en `ir/`), selector (método `sel_<Clase>`
 que traduce una instrucción del IR), casa (dirección en memoria de una
