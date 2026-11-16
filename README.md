@@ -242,6 +242,10 @@ TAC + tabla de símbolos
 MIPS crudo ──peephole.optimize──▶ MIPS final
 ```
 
+La mirilla tiene un demo por regla en `workspace/input/comp-mips/17-mirilla-<regla>-valido.cps`
+(8 de las 10; `move_redundante` y `guardar_tras_cargar` son redes de seguridad que el
+generador nunca activa). Se prueban en `src/tests/asm/test_asm_peephole_demos.py`.
+
 Pruebas: `make test ARGS="src/tests/asm -q"`. Los programas de
 `src/tests/asm/estres_casos.py` cubren cada área de la rúbrica con casos
 difíciles (herencia profunda, recursión, derrames de registros, closures,

@@ -626,19 +626,22 @@ los argumentos de una choca con el `-4` que reserva los de la siguiente.
 
 El generador ya evita muchos patrones (por ejemplo, el asignador nunca emite
 `move $r, $r`), así que no todas las reglas se activan con cualquier programa.
-`move_redundante`, `carga_tras_guardar` y `guardar_tras_cargar` son redes de
-seguridad: se prueban a mano en `test_asm_peephole.py` y casi nunca aparecen en la
-salida real. Las demás sí salen de programas normales:
+`move_redundante` y `guardar_tras_cargar` son redes de seguridad: el generador
+nunca emite esos patrones (se comprobó en 75 programas), así que solo se prueban
+a mano en `test_asm_peephole.py`. Las demás sí salen de programas reales y cada
+una tiene su demo `17-mirilla-<regla>-valido.cps`
+(prueba: `tests/asm/test_asm_peephole_demos.py`):
 
 | Regla | Aparece en |
 |-------|------------|
 | `salto_a_la_siguiente` | cualquier función con `return` (por ejemplo `09-herencia-valido.cps`) |
 | `salto_sobre_salto` | `if` con `break`/`continue` (`05-control_flujo-valido.cps`) |
-| `codigo_muerto` | `&&` y `||` |
+| `codigo_muerto` | `return` dentro de `try` |
 | `move_ida_y_vuelta` | llamadas anidadas, recursión |
 | `salto_a_salto` | `if`/`else` dentro de un ciclo |
 | `fusion_ajustes_sp` | varias llamadas seguidas con argumentos |
 | `identidad_aritmetica` | `(a * b) + 0` |
+| `carga_tras_guardar` | guardar un campo y leerlo enseguida (`this.x = ...; return this.x`) |
 
 El demo **`16-mirilla-valido.cps`** reúne seis de estas reglas
 (`salto_a_la_siguiente`, `salto_sobre_salto`, `salto_a_salto`, `move_ida_y_vuelta`,

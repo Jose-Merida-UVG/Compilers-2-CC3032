@@ -27,7 +27,7 @@ for (let k: integer = 0; k < 6; k = k + 1) {
 }
 print(pares);
 
-// && y ||: tras un salto incondicional queda código que nadie ejecuta
+// && y ||: cortocircuito (no activa ninguna regla propia; el código muerto sale en el demo 17)
 let a: integer = 2;
 let b: integer = 3;
 if (a < b && b > 0 || a == 0) { print("ok"); }
