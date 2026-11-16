@@ -61,7 +61,12 @@ Pipeline: `fuente → Lexer → Parser → SemanticChecker → TACGenerator → 
 
 ## Requisitos
 
-- Java (JRE 11+): solo para ejecutar el jar de ANTLR al generar el código.
+- Java (JRE 11+): para ejecutar el jar de ANTLR al generar el código y, para correr el MIPS, MARS.
+- `Mars4_5.jar` (simulador MARS 4.5, **no está en el repositorio**): solo hace falta para ejecutar
+  el MIPS (`make mips`, **▶ Ejecutar** y las pruebas contra MARS; sin él esas pruebas se saltan).
+  Descárgalo de <https://dpetersanderson.github.io/Mars4_5.jar> (el sitio original de Missouri State ya
+  no lo aloja) y déjalo en `src/tools/Mars4_5.jar`, o apunta a otra ruta con la variable `MARS_JAR`.
+  Ejecutar un `.s` a mano: `java -jar src/tools/Mars4_5.jar nc sm archivo.s`.
 - Python 3.9+
 - Node.js: solo para el frontend.
 
@@ -253,8 +258,8 @@ La referencia final de quién hizo qué son los commits individuales; esto es el
 resumen (detalle en [docs/semantic.md](docs/semantic.md) §10 y
 [docs/tac.md](docs/tac.md) §14).
 
-| Integrante | Proyecto 1 (semántico) | Proyecto 2 (código intermedio) |
-|---|---|---|
-| Camila Richter (`Cami`) | tabla de símbolos y ámbitos | diseño del TAC y reciclaje de temporales (`instructions.py`, `emitter.py`, `generator.py`), anotaciones del checker, integración en `compiler.py`, `main.py` y `server.py`, y la GUI |
-| Marinés García (`NESHGP04`) | sistema de tipos y funciones | declaraciones, aritmética, lógicas, arreglos, control de flujo y try/catch (`gen_core.py`, `gen_control.py`) y sus baterías de pruebas |
-| Jose Antonio Mérida (`TonitoMC`) | control de flujo, clases, arreglos, IDE | funciones, recursividad, clases y herencia (`gen_functions.py`, `gen_classes.py`), y tabla de símbolos con layout de memoria (`layout.py`, `symbols.py`) |
+| Integrante | Proyecto 1 (semántico) | Proyecto 2 (código intermedio) | Proyecto 3 (ensamblador MIPS) |
+|---|---|---|---|
+| Camila Richter (`Cami`) | tabla de símbolos y ámbitos | diseño del TAC y reciclaje de temporales (`instructions.py`, `emitter.py`, `generator.py`), anotaciones del checker, integración en `compiler.py`, `main.py` y `server.py`, y la GUI | integración del generador en `analyze()`, la CLI (`--asm`) y el servidor (`compiler.py`, `main.py`, `server.py`); pruebas de declaraciones, asignaciones, constantes y sombreado, de los marcos de activación y de `getReg` (derrames, trazas y registros protegidos) |
+| Marinés García (`NESHGP04`) | sistema de tipos y funciones | declaraciones, aritmética, lógicas, arreglos, control de flujo y try/catch (`gen_core.py`, `gen_control.py`) y sus baterías de pruebas | esqueleto del generador (IR tipado, parser del TAC, emisor, `getReg`, marcos de activación y driver: `ir.py`, `tac_parser.py`, `emitter.py`, `regalloc.py`, `frames.py`, `generator.py`, `sel_core.py`); runtime de impresión, memoria y strings (`runtime.py`); selectores de aritmética, lógicas, arreglos, control de flujo, funciones y recursividad (`sel_ops.py`, `sel_control.py`, `sel_arrays.py`, `sel_calls.py`); closures (variables capturadas); en el IDE, los visores de ensamblador y de registros y árbol de activación; intérprete mínimo de MIPS para pruebas; y las baterías de esas seis áreas, también ejecutadas en MARS |
+| Jose Antonio Mérida (`TonitoMC`) | control de flujo, clases, arreglos, IDE | funciones, recursividad, clases y herencia (`gen_functions.py`, `gen_classes.py`), y tabla de símbolos con layout de memoria (`layout.py`, `symbols.py`) | clases, herencia y llamadas virtuales (`sel_objects.py`); `try/catch` y excepciones (`sel_try.py`, `runtime_exc.py`); datos de activación (`activation.py`); mirilla (`peephole.py`); ejecución en MARS desde el IDE y la CLI (`run_mips.py`); pestaña de selección de registros; ajuste de closures; refactor del IR y del generador; 114 programas de estrés; y la documentación (`workspace/MIPS.md`, `src/asm/map.md`) |
